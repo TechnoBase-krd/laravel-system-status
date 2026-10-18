@@ -139,7 +139,7 @@ GitHub API, which would need a token for a private repository):
 ```json
 {
     "repositories": [
-        { "type": "vcs", "url": "git@github.com:TechnoBase-krd/laravel-status-page.git", "no-api": true }
+        { "type": "vcs", "url": "git@github.com:TechnoBase-krd/laravel-system-status.git", "no-api": true }
     ],
     "config": {
         "preferred-install": { "technobase/*": "source", "*": "dist" }
@@ -569,9 +569,9 @@ Fill in its last section, *This application*, with your components and probes, a
 ## Deployment
 
 - **Composer access.** Every machine or container that runs `composer install` needs read
-  access to `TechnoBase-krd/laravel-status-page`: an SSH key with read access (a GitHub deploy
+  access to `TechnoBase-krd/laravel-system-status`: an SSH key with read access (a GitHub deploy
   key), or a GitHub token in `COMPOSER_AUTH` (`{"github-oauth": {"github.com": "<token>"}}`) with
-  the URL `https://github.com/TechnoBase-krd/laravel-status-page.git`.
+  the URL `https://github.com/TechnoBase-krd/laravel-system-status.git`.
 - **Scheduler.** `schedule:run` must run every minute (cron or a scheduler container), otherwise
   the page shows the scheduler red and nothing updates.
 - **Queues.** List in `queues` only queues that always have a worker.

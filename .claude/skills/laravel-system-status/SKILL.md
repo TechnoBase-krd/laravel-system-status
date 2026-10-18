@@ -8,7 +8,7 @@ description: Working on the technobase/laravel-system-status package itself — 
 ## What this package is
 
 A status page for Laravel backoffices, extracted from Khatun-Ecommerce. Repository
-`TechnoBase-krd/laravel-status-page`; Composer name `technobase/laravel-system-status`;
+`TechnoBase-krd/laravel-system-status`; Composer name `technobase/laravel-system-status`;
 namespace `Technobase\SystemStatus`. Used by Khatun-Ecommerce and CloudNova-OnlineShopping
 through a private `vcs` repository with `preferred-install` = `source` for `technobase/*`.
 
