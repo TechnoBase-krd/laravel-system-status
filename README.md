@@ -305,7 +305,7 @@ All options live in `config/system-status.php`.
 | `probe_base_url` | `env('STATUS_PROBE_BASE_URL')` | send HTTP probes straight to the app (e.g. `http://nginx`); `APP_URL`'s host is kept in `Host` |
 | `probe_verify_ssl` | `env('STATUS_PROBE_VERIFY_SSL', true)` | `false` skips TLS checks, only for an internal probe base URL |
 | `probe_user_agent` | `SystemStatusProbe/1.0` | User-Agent of the HTTP probes (allow it in your firewall) |
-| `alerts.enabled` | `true` | send Telegram alerts |
+| `alerts.enabled` | `env('SYSTEM_STATUS_ALERTS_ENABLED', true)` | send Telegram alerts; `SYSTEM_STATUS_ALERTS_ENABLED=false` in `.env` turns them off |
 | `alerts.telegram_chat_id` | `env('SYSTEM_STATUS_TELEGRAM_CHAT_ID')` | chat that receives the alerts |
 | `alerts.prefix` | `[APP_NAME status]` | first words of every alert |
 | `retention_days` | checks 7, route_buckets 7, daily 90, incidents 90 | what `status:prune` keeps |
@@ -436,7 +436,7 @@ Event::listen(function (ComponentStatusChanged $event) {
 ```
 
 A failing listener is logged and never stops the status run. To use only your own channel,
-set `alerts.enabled` to `false`.
+set `SYSTEM_STATUS_ALERTS_ENABLED=false` in `.env` (or `alerts.enabled` to `false`).
 
 **Telegram alerts** need `laravel-notification-channels/telegram`, the bot token in
 `services.telegram-bot-api.token` and `alerts.telegram_chat_id`. They are never sent in the
@@ -605,7 +605,7 @@ Fill in its last section, *This application*, with your components and probes, a
 | A component shows "Not configured" | its probes return `skipped()` | configure the integration, or accept it |
 | A component name looks like "Api Orders" | no label for it | add `status_component_<key>` in `lang/vendor/system-status` |
 | 403 on the page | the user has none of `access.roles` (or fails `access.gate`) | change the access settings |
-| No Telegram alerts | `local` environment, no chat id, no bot token, `alerts.enabled` false, or the Telegram package missing | check those |
+| No Telegram alerts | `local` environment, no chat id, no bot token, `SYSTEM_STATUS_ALERTS_ENABLED=false`, or the Telegram package missing | check those |
 | Routes counted under `api_other` / `bo_other` | no rule matches them | `php artisan status:routes --fallback`, then add `uris` |
 
 ---

@@ -90,7 +90,8 @@ return [
     // Every confirmed change also fires Technobase\SystemStatus\Events\ComponentStatusChanged,
     // so the application can send alerts anywhere else.
     'alerts' => [
-        'enabled' => true,
+        // SYSTEM_STATUS_ALERTS_ENABLED=false turns the Telegram alerts off (the event still fires).
+        'enabled' => (bool) env('SYSTEM_STATUS_ALERTS_ENABLED', true),
         'telegram_chat_id' => env('SYSTEM_STATUS_TELEGRAM_CHAT_ID'),
         'prefix' => '['.env('APP_NAME', 'Laravel').' status]',
     ],

@@ -3,7 +3,7 @@
 ## Unreleased (v1.1.0)
 
 - `ComponentStatusChanged` event on every confirmed status change.
-- `alerts.enabled` to turn the Telegram alerts off.
+- `alerts.enabled` (`SYSTEM_STATUS_ALERTS_ENABLED`) to turn the Telegram alerts off.
 - `access.gate`: a Gate ability instead of the role check.
 - `refresh_seconds`: refresh interval of the page per range.
 - `extra_css`: a CSS file of the application for branding.
