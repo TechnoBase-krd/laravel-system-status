@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use NotificationChannels\Telegram\TelegramMessage;
 use Technobase\SystemStatus\Enums\ComponentStatus;
+use Technobase\SystemStatus\Events\ComponentStatusChanged;
 use Technobase\SystemStatus\Jobs\StatusHeartbeatJob;
 use Technobase\SystemStatus\Models\StatusCheck;
 use Technobase\SystemStatus\Models\StatusComponent;
@@ -296,6 +297,8 @@ class StatusService
             return $state;
         }
 
+        $previous = null;
+
         if ($state->candidate_status === $observed) {
             $state->candidate_runs++;
         } else {
@@ -317,7 +320,29 @@ class StatusService
 
         $state->save();
 
+        if ($previous !== null) {
+            $this->dispatchChange($component, $previous, $observed, $message, $now);
+        }
+
         return $state;
+    }
+
+    /**
+     * Lets the application react to a confirmed change (ComponentStatusChanged). A failing
+     * listener never stops the status run.
+     */
+    private function dispatchChange(
+        string $component,
+        ComponentStatus $previous,
+        ComponentStatus $current,
+        ?string $message,
+        CarbonInterface $now,
+    ): void {
+        try {
+            event(new ComponentStatusChanged($component, $this->registry->label($component), $previous, $current, $message, $now));
+        } catch (Throwable $e) {
+            Log::warning('A ComponentStatusChanged listener failed.', ['exception' => $e::class]);
+        }
     }
 
     private function recordIncident(
@@ -427,7 +452,8 @@ class StatusService
     {
         $chatId = config('system-status.alerts.telegram_chat_id');
 
-        if (app()->environment('local')
+        if (! config('system-status.alerts.enabled', true)
+            || app()->environment('local')
             || blank($chatId)
             || blank(config('services.telegram-bot-api.token'))
             || ! class_exists(TelegramMessage::class)) {

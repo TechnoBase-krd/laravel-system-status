@@ -28,7 +28,7 @@ class StatusMetrics
             $key = self::KEY_PREFIX.(intdiv(time(), 60) * 60);
             $field = $component.self::SEPARATOR.$route.self::SEPARATOR;
 
-            Redis::connection()->pipeline(function ($pipe) use ($key, $field, $failed, $durationMs, $slow) {
+            Redis::connection(config('system-status.redis_connection'))->pipeline(function ($pipe) use ($key, $field, $failed, $durationMs, $slow) {
                 $pipe->hincrby($key, $field.'r', 1);
                 if ($failed) {
                     $pipe->hincrby($key, $field.'e', 1);
@@ -52,7 +52,7 @@ class StatusMetrics
      */
     public function flush(): int
     {
-        $redis = Redis::connection();
+        $redis = Redis::connection(config('system-status.redis_connection'));
         $currentMinute = intdiv(time(), 60) * 60;
         $rows = [];
         $flushed = 0;

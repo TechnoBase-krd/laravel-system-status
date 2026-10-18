@@ -47,6 +47,11 @@ class SystemStatusServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__.'/../resources/views' => resource_path('views/vendor/system-status'),
             ], 'system-status-views');
+
+            // A Claude Code skill that teaches the assistant how this package works in the app.
+            $this->publishes([
+                __DIR__.'/../resources/claude/SKILL.md' => base_path('.claude/skills/system-status/SKILL.md'),
+            ], 'system-status-skill');
         }
 
         if (config('system-status.schedule', true)) {

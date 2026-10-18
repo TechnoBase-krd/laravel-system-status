@@ -17,8 +17,12 @@ class SystemStatusController extends Controller
 {
     public function index(): View
     {
+        $extra = config('system-status.extra_css');
+
         return view('system-status::index', [
             'styles' => (string) file_get_contents(dirname(__DIR__, 3).'/resources/css/system-status.css'),
+            // Optional branding: a CSS file of the application, added after the package styles.
+            'extraStyles' => filled($extra) && is_file($extra) ? (string) file_get_contents($extra) : null,
         ]);
     }
 

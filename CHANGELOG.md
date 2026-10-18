@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased (v1.1.0)
+
+- `ComponentStatusChanged` event on every confirmed status change.
+- `alerts.enabled` to turn the Telegram alerts off.
+- `access.gate`: a Gate ability instead of the role check.
+- `refresh_seconds`: refresh interval of the page per range.
+- `extra_css`: a CSS file of the application for branding.
+- `redis_connection`: Redis connection of the traffic counters.
+- `system-status-skill` publish tag: a Claude Code skill for the application.
+- The migration skips tables that already exist.
+- Full README with screenshots; maintainer skill in `.claude/skills/laravel-system-status`.
+
 ## v1.0.0 - 2026-10-18
 
 - First release, extracted from Khatun-Ecommerce's System Status page (modules/monitoring).

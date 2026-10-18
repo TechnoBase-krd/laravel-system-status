@@ -2,6 +2,9 @@
 
 @push(config('system-status.stacks.styles', 'styles'))
     <style>{!! $styles !!}</style>
+    @if(filled($extraStyles ?? null))
+        <style>{!! $extraStyles !!}</style>
+    @endif
 @endpush
 
 @section('title')
@@ -314,8 +317,10 @@
             }
 
             // Real time refreshes every 20 s (checks run every minute); the other ranges every 60 s.
+            const REFRESH = @json((array) config('system-status.refresh_seconds', ['1h' => 20, 'default' => 60]));
+
             function refreshSeconds() {
-                return state.range === '1h' ? 20 : 60;
+                return Math.max(5, parseInt(REFRESH[state.range] || REFRESH.default || 60, 10));
             }
 
             /* ---------- helpers ---------- */

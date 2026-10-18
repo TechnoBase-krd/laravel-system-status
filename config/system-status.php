@@ -30,6 +30,8 @@ return [
     'access' => [
         // Roles checked with $user->hasRole() (spatie/laravel-permission).
         'roles' => ['Super Admin'],
+        // A Gate ability name (e.g. 'viewSystemStatus'). When set, it replaces the role check.
+        'gate' => null,
     ],
     'layout' => 'layouts.app',
     // Stack names the layout renders; the page pushes its CSS, modal and script into them.
@@ -39,10 +41,23 @@ return [
         'scripts' => 'scripts',
     ],
 
+    // Absolute path of a CSS file added after the package styles, for branding. The page uses
+    // --sst-* variables on .sst (e.g. .sst { --sst-accent: #0f766e; }).
+    'extra_css' => null,
+
+    // Seconds between automatic refreshes of the page, per range; 'default' for the others.
+    'refresh_seconds' => [
+        '1h' => 20,
+        'default' => 60,
+    ],
+
     // Count every request per component (global middleware) and schedule status:check (every
     // minute) and status:prune (daily). Turn off to register them yourself.
     'record_traffic' => true,
     'schedule' => true,
+
+    // Redis connection for the per-minute traffic counters (null = the default connection).
+    'redis_connection' => null,
 
     'thresholds' => [
         'window_minutes' => 15,
@@ -72,7 +87,10 @@ return [
 
     // Status changes are sent to this Telegram chat (laravel-notification-channels/telegram,
     // bot token in services.telegram-bot-api.token). Empty = logged only. Never sent in `local`.
+    // Every confirmed change also fires Technobase\SystemStatus\Events\ComponentStatusChanged,
+    // so the application can send alerts anywhere else.
     'alerts' => [
+        'enabled' => true,
         'telegram_chat_id' => env('SYSTEM_STATUS_TELEGRAM_CHAT_ID'),
         'prefix' => '['.env('APP_NAME', 'Laravel').' status]',
     ],
