@@ -572,6 +572,18 @@ Fill in its last section, *This application*, with your components and probes, a
   access to `TechnoBase-krd/laravel-system-status`: an SSH key with read access (a GitHub deploy
   key), or a GitHub token in `COMPOSER_AUTH` (`{"github-oauth": {"github.com": "<token>"}}`) with
   the URL `https://github.com/TechnoBase-krd/laravel-system-status.git`.
+- **Servers without git or SSH (Docker images).** Keep the SSH repository for developers and,
+  on the server, give Composer a read-only GitHub token and install from the zip that
+  `composer.lock` records:
+
+  ```bash
+  # once, in the project folder on the server (auth.json is git-ignored by Laravel)
+  echo '{"github-oauth": {"github.com": "<token>"}}' > auth.json && chmod 600 auth.json
+  # every deploy
+  composer install --prefer-dist --no-interaction
+  ```
+
+  The token needs read access to this repository only (fine-grained token, Contents: Read-only).
 - **Scheduler.** `schedule:run` must run every minute (cron or a scheduler container), otherwise
   the page shows the scheduler red and nothing updates.
 - **Queues.** List in `queues` only queues that always have a worker.
