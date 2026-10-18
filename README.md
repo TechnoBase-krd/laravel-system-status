@@ -29,9 +29,15 @@ The package is private. Add the repository to the application's `composer.json`:
 
 ```json
 "repositories": [
-    { "type": "vcs", "url": "git@github.com:TechnoBase-krd/laravel-system-status.git" }
-]
+    { "type": "vcs", "url": "git@github.com:TechnoBase-krd/laravel-status-page.git", "no-api": true }
+],
+"config": {
+    "preferred-install": { "technobase/*": "source", "*": "dist" }
+}
 ```
+
+`no-api` and `source` make Composer clone the package with git over SSH. Without them it
+asks the GitHub API for a zip of the private repository, which needs a token.
 
 ```bash
 composer require technobase/laravel-system-status
@@ -44,9 +50,10 @@ The service provider is auto-discovered. It registers the routes (`system_status
 `status:check` (every minute) and `status:prune` (daily 03:30) schedule, and the commands
 `status:check`, `status:prune` and `status:routes`. The scheduler must be running.
 
-**Deploying:** a server or container that runs `composer install` needs read access to this
-repository: an SSH deploy key, or a GitHub token in `COMPOSER_AUTH`
-(`{"github-oauth": {"github.com": "<token>"}}`) with the `https://github.com/...` URL.
+**Deploying:** a server or container that runs `composer install` needs read access to
+`TechnoBase-krd/laravel-status-page`: an SSH key with read access (a GitHub deploy key) in the
+container, or a GitHub token in `COMPOSER_AUTH` (`{"github-oauth": {"github.com": "<token>"}}`)
+with the URL `https://github.com/TechnoBase-krd/laravel-status-page.git`.
 
 ## Configure
 
