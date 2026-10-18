@@ -1,0 +1,68 @@
+name: Release
+
+# Every push to main is checked and, when its commits call for it, released as a new version
+# tag (vX.Y.Z) with a GitHub Release. The version comes from the commit messages; see
+# .github/scripts/next-version.sh. "Run workflow" forces a patch, minor or major release.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump (auto reads the commit messages)
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out with full history and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PHP syntax
+        run: find src config routes lang database -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+
+      - name: Validate composer.json
+        run: composer validate --no-check-publish --no-check-lock
+
+      - name: Work out the next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump || 'auto' }}
+        run: |
+          if git tag --points-at HEAD | grep -q '^v'; then
+            echo "This commit is already released."
+            exit 0
+          fi
+          tag=$(bash .github/scripts/next-version.sh "$BUMP")
+          if [ -z "$tag" ]; then
+            echo "No feat / fix / breaking commits since the last release: nothing to release."
+            exit 0
+          fi
+          echo "Next version: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Write the release notes
+        if: steps.version.outputs.tag != ''
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: bash .github/scripts/release-notes.sh > release-notes.md && cat release-notes.md
+
+      - name: Create the tag and the GitHub Release
+        if: steps.version.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file release-notes.md

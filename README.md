@@ -613,7 +613,23 @@ Fill in its last section, *This application*, with your components and probes, a
 ## Upgrading and releases
 
 Versions follow semantic versioning: `1.x` releases never rename or remove a config key, route
-name, translation key, class or event property. See [CHANGELOG.md](CHANGELOG.md).
+gitname, translation key, class or event property. See [CHANGELOG.md](CHANGELOG.md) and the
+[GitHub Releases](https://github.com/TechnoBase-krd/laravel-system-status/releases).
+
+**Releases are automatic.** On every push to `main`, the *Release* workflow
+(`.github/workflows/release.yml`) checks the PHP syntax and `composer.json`, reads the commit
+messages since the last tag and, when needed, creates the next tag and a GitHub Release with
+notes:
+
+| Commits since the last release | Next version |
+| --- | --- |
+| `feat!:` / `fix!:` (any `type!:`) or a `BREAKING CHANGE:` line in the body | major, e.g. `v2.0.0` |
+| `feat:` | minor, e.g. `v1.2.0` |
+| `fix:`, `perf:`, `refactor:`, `revert:` | patch, e.g. `v1.1.1` |
+| only `docs:`, `chore:`, `ci:`, `style:`, `test:` | no release |
+
+To force a release, open *Actions → Release → Run workflow* and choose `patch`, `minor` or
+`major`. Never create or move `v*` tags by hand.
 
 ```bash
 composer update technobase/laravel-system-status

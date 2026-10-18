@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (v1.1.0)
+## v1.1.0 - 2026-10-18
 
 - `ComponentStatusChanged` event on every confirmed status change.
 - `alerts.enabled` (`SYSTEM_STATUS_ALERTS_ENABLED`) to turn the Telegram alerts off.
@@ -11,6 +11,7 @@
 - `system-status-skill` publish tag: a Claude Code skill for the application.
 - The migration skips tables that already exist.
 - Full README with screenshots; maintainer skill in `.claude/skills/laravel-system-status`.
+- Automatic releases: GitHub Actions creates the version tag and the GitHub Release from the commit messages.
 
 ## v1.0.0 - 2026-10-18
 

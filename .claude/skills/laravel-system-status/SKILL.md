@@ -68,10 +68,20 @@ There are no automated tests yet. Before a release:
 
 ## Releasing
 
-1. Update `CHANGELOG.md` (move "Unreleased" under the new version and date).
-2. Commit, then tag with a semantic version: `git tag -a v1.2.0 -m "v1.2.0"`, push `main` and the tag.
-3. In each application: `composer update technobase/laravel-system-status`, check the page, and
-   commit `composer.lock`.
+Releases are automatic: `.github/workflows/release.yml` runs on every push to `main`, checks PHP
+syntax and `composer.json`, and creates the next `vX.Y.Z` tag plus a GitHub Release from the
+commit messages since the last tag (`.github/scripts/next-version.sh`,
+`.github/scripts/release-notes.sh`):
 
-Patch (`1.0.x`) for fixes, minor (`1.x.0`) for new options, major for anything that breaks an
-application.
+- `type!:` or a `BREAKING CHANGE:` body line → major; `feat:` → minor;
+  `fix:` / `perf:` / `refactor:` / `revert:` → patch; only `docs:` / `chore:` / `ci:` /
+  `style:` / `test:` → no release.
+- *Actions → Release → Run workflow* forces `patch`, `minor` or `major`.
+- Never create, move or delete `v*` tags by hand.
+
+So the commit prefix is the release decision: use `feat:` for a new option, `fix:` for a bug,
+`feat!:` only for a change that breaks an application. Before pushing, move the "Unreleased"
+notes in `CHANGELOG.md` under the version the commits will produce.
+
+Then, in each application: `composer update technobase/laravel-system-status`, check the page,
+and commit `composer.lock`.
