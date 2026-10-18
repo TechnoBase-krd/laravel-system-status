@@ -1,0 +1,883 @@
+/*
+ * System Status page (modules/monitoring). Everything is scoped under .sst. Colours derive from
+ * the theme tokens in colors.css, so light and dark follow the theme. Only transform and opacity
+ * are animated; motion is off under prefers-reduced-motion. Logical properties keep RTL right.
+ */
+
+.sst {
+    --sst-ok: var(--success, #16a34a);
+    --sst-degraded: var(--warning, #f59e0b);
+    --sst-partial: #f97316;
+    --sst-major: var(--danger, #dc2626);
+    --sst-none: color-mix(in oklab, var(--border, #d1d5db) 70%, var(--surface-2, #f1f2f5));
+    --sst-muted: var(--muted, #6b7280);
+    --sst-fg: var(--page-fg, #111827);
+    --sst-surface: var(--surface-1, #fff);
+    --sst-surface-2: var(--surface-2, #f1f2f5);
+    --sst-border: color-mix(in oklab, var(--border, #d1d5db) 75%, transparent);
+    --sst-accent: var(--primary, #6F2E8F);
+    --sst-radius: .75rem;
+    --sst-shadow: 0 1px 2px rgb(16 24 40 / .05), 0 1px 3px rgb(16 24 40 / .06);
+    --sst-ease: cubic-bezier(.2, .8, .2, 1);
+}
+
+.sst [hidden] {
+    display: none !important;
+}
+
+.sst .sst-muted {
+    color: var(--sst-muted);
+}
+
+/* ---------- hero ---------- */
+.sst .sst-hero {
+    --sst-tone: var(--sst-muted);
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem 1.5rem;
+    padding: 1.5rem 1.75rem;
+    margin-block-end: 1.25rem;
+    border-radius: var(--sst-radius);
+    color: #fff;
+    background:
+        radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--sst-tone) 70%, #fff) 0%, transparent 55%),
+        linear-gradient(135deg, var(--sst-tone), color-mix(in oklab, var(--sst-tone) 70%, #000));
+    box-shadow: 0 10px 30px -12px color-mix(in oklab, var(--sst-tone) 60%, transparent);
+    overflow: hidden;
+    transition: box-shadow .4s var(--sst-ease);
+}
+
+.sst .sst-hero-main {
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
+    min-inline-size: 0;
+}
+
+.sst .sst-hero-icon {
+    position: relative;
+    flex: none;
+    display: grid;
+    place-items: center;
+    inline-size: 3.25rem;
+    block-size: 3.25rem;
+    border-radius: 50%;
+    font-size: 1.35rem;
+    color: var(--sst-tone);
+    background: #fff;
+}
+
+.sst .sst-hero-icon::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    opacity: .6;
+    animation: sst-ring 2.4s var(--sst-ease) infinite;
+}
+
+.sst .sst-hero[data-level="loading"] .sst-hero-icon i {
+    animation: sst-spin 1s linear infinite;
+}
+
+.sst .sst-hero-text {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 0;
+}
+
+.sst .sst-hero-eyebrow {
+    font-size: .72rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    opacity: .8;
+}
+
+.sst .sst-hero-title {
+    margin: .1rem 0 .2rem;
+    font-size: 1.55rem;
+    font-weight: 700;
+    color: inherit;
+}
+
+.sst .sst-hero-meta {
+    margin: 0;
+    font-size: .85rem;
+    opacity: .9;
+}
+
+.sst .sst-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+}
+
+.sst .sst-countdown {
+    font-size: .8rem;
+    opacity: .85;
+    font-variant-numeric: tabular-nums;
+}
+
+.sst .sst-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .45rem .9rem;
+    border: 1px solid rgb(255 255 255 / .45);
+    border-radius: 999px;
+    color: #fff;
+    background: rgb(255 255 255 / .14);
+    font-weight: 600;
+}
+
+.sst .sst-refresh:hover,
+.sst .sst-refresh:focus-visible {
+    color: #fff;
+    background: rgb(255 255 255 / .26);
+}
+
+.sst.is-refreshing .sst-refresh i {
+    animation: sst-spin 1s linear infinite;
+}
+
+/* ---------- KPI tiles ---------- */
+.sst .sst-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+    gap: .85rem;
+    margin-block-end: 1.25rem;
+}
+
+.sst .sst-kpi {
+    --sst-tone: var(--sst-accent);
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    padding: .95rem 1.1rem;
+    border: 1px solid var(--sst-border);
+    border-inline-start: 4px solid var(--sst-tone);
+    border-radius: var(--sst-radius);
+    background: var(--sst-surface);
+    box-shadow: var(--sst-shadow);
+}
+
+.sst .sst-kpi[data-tone="danger"] { --sst-tone: var(--sst-major); }
+.sst .sst-kpi[data-tone="warning"] { --sst-tone: var(--sst-degraded); }
+
+.sst .sst-kpi-label {
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--sst-muted);
+}
+
+.sst .sst-kpi-value {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: var(--sst-fg);
+    font-variant-numeric: tabular-nums;
+}
+
+.sst .sst-kpis-compact .sst-kpi-value {
+    font-size: 1.2rem;
+}
+
+/* ---------- toolbar ---------- */
+.sst .sst-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .75rem 1rem;
+    margin-block-end: 1rem;
+}
+
+.sst .sst-segmented {
+    display: inline-flex;
+    padding: .2rem;
+    border-radius: 999px;
+    background: var(--sst-surface-2);
+    border: 1px solid var(--sst-border);
+}
+
+.sst .sst-segment {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .35rem .9rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--sst-muted);
+    font-weight: 600;
+    font-size: .82rem;
+}
+
+.sst .sst-segment[aria-pressed="true"] {
+    color: var(--sst-fg);
+    background: var(--sst-surface);
+    box-shadow: var(--sst-shadow);
+}
+
+.sst .sst-segment-count {
+    min-inline-size: 1.35rem;
+    padding: 0 .35rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    color: #fff;
+    background: var(--sst-major);
+    text-align: center;
+}
+
+.sst .sst-segment-count:empty,
+.sst .sst-segment-count[data-zero="1"] {
+    background: var(--sst-muted);
+}
+
+.sst .sst-search {
+    position: relative;
+    flex: 1 1 220px;
+    max-inline-size: 320px;
+    margin: 0;
+}
+
+.sst .sst-search i {
+    position: absolute;
+    inset-inline-start: .8rem;
+    inset-block-start: 50%;
+    transform: translateY(-50%);
+    color: var(--sst-muted);
+    font-size: .8rem;
+}
+
+.sst .sst-search input {
+    inline-size: 100%;
+    padding: .45rem .9rem .45rem 2.2rem;
+    padding-inline: 2.2rem .9rem;
+    border: 1px solid var(--sst-border);
+    border-radius: 999px;
+    background: var(--sst-surface);
+    color: var(--sst-fg);
+}
+
+.sst .sst-search input:focus {
+    outline: 2px solid color-mix(in oklab, var(--sst-accent) 40%, transparent);
+    outline-offset: 1px;
+}
+
+.sst .sst-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem .9rem;
+    margin-inline-start: auto;
+    font-size: .75rem;
+    color: var(--sst-muted);
+}
+
+.sst .sst-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+}
+
+.sst .sst-swatch {
+    inline-size: .7rem;
+    block-size: .7rem;
+    border-radius: 3px;
+    background: var(--sst-tone);
+}
+
+.sst .sst-swatch[data-level="none"] {
+    background: var(--sst-none);
+}
+
+/* range switch: the real-time option carries a live dot that pulses while it is selected */
+.sst .sst-live-dot {
+    position: relative;
+    inline-size: .45rem;
+    block-size: .45rem;
+    border-radius: 50%;
+    background: var(--sst-muted);
+}
+
+.sst .sst-segment[data-range="1h"][aria-pressed="true"] .sst-live-dot {
+    background: var(--sst-major);
+}
+
+.sst .sst-segment[data-range="1h"][aria-pressed="true"] .sst-live-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--sst-major);
+    animation: sst-pulse 1.6s var(--sst-ease) infinite;
+}
+
+/* ---------- groups ---------- */
+.sst .sst-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.sst .sst-group {
+    --sst-tone: var(--sst-ok);
+    border: 1px solid var(--sst-border);
+    border-radius: var(--sst-radius);
+    background: var(--sst-surface);
+    box-shadow: var(--sst-shadow);
+    overflow: hidden;
+    animation: sst-enter .35s var(--sst-ease) both;
+}
+
+.sst .sst-group-head {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .85rem 1.25rem;
+    border-block-end: 1px solid var(--sst-border);
+    background: linear-gradient(to bottom, var(--sst-surface), var(--sst-surface-2));
+}
+
+.sst .sst-group.is-collapsed .sst-group-head {
+    border-block-end-color: transparent;
+}
+
+.sst .sst-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    flex: 1;
+    min-inline-size: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    text-align: start;
+}
+
+.sst .sst-chevron {
+    font-size: .75rem;
+    color: var(--sst-muted);
+    transition: transform .25s var(--sst-ease);
+}
+
+.sst .sst-group.is-collapsed .sst-chevron {
+    transform: rotate(-90deg);
+}
+
+html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
+    transform: rotate(90deg);
+}
+
+.sst .sst-group-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.sst .sst-group-summary {
+    font-size: .78rem;
+    color: var(--sst-muted);
+    white-space: nowrap;
+}
+
+.sst .sst-group.is-collapsed .sst-components {
+    display: none;
+}
+
+.sst .sst-components {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+}
+
+/* ---------- components ---------- */
+.sst .sst-component {
+    --sst-tone: var(--sst-ok);
+    position: relative;
+    padding: 1rem 1.25rem .9rem;
+    border-block-end: 1px solid var(--sst-border);
+    border-inline-end: 1px solid var(--sst-border);
+    transition: background-color .2s var(--sst-ease);
+}
+
+.sst .sst-component:hover {
+    background: color-mix(in oklab, var(--sst-surface-2) 55%, var(--sst-surface));
+}
+
+.sst .sst-component[data-problem="1"] {
+    background: color-mix(in oklab, var(--sst-tone) 6%, var(--sst-surface));
+}
+
+.sst .sst-component[data-problem="1"]::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    inline-size: 3px;
+    background: var(--sst-tone);
+}
+
+.sst .sst-component-head {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    margin-block-end: .5rem;
+}
+
+.sst .sst-dot {
+    --sst-tone: var(--sst-muted);
+    position: relative;
+    flex: none;
+    inline-size: .6rem;
+    block-size: .6rem;
+    border-radius: 50%;
+    background: var(--sst-tone);
+}
+
+.sst .sst-dot[data-status="operational"],
+.sst .sst-component[data-status="operational"] .sst-dot { --sst-tone: var(--sst-ok); }
+.sst .sst-dot[data-status="degraded"],
+.sst .sst-component[data-status="degraded"] .sst-dot { --sst-tone: var(--sst-degraded); }
+.sst .sst-dot[data-status="major_outage"],
+.sst .sst-component[data-status="major_outage"] .sst-dot { --sst-tone: var(--sst-major); }
+.sst .sst-component[data-status="not_configured"] .sst-dot { --sst-tone: var(--sst-muted); }
+
+.sst .sst-component[data-problem="1"] .sst-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--sst-tone);
+    animation: sst-pulse 1.6s var(--sst-ease) infinite;
+}
+
+.sst .sst-component-name {
+    flex: 1;
+    min-inline-size: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--sst-fg);
+    font-weight: 600;
+    text-align: start;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sst .sst-component-name:hover,
+.sst .sst-component-name:focus-visible {
+    color: var(--sst-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.sst .sst-component-uptime {
+    font-size: .75rem;
+    color: var(--sst-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.sst .sst-component-message {
+    margin: -.15rem 0 .55rem;
+    padding: .4rem .6rem;
+    border-radius: .4rem;
+    font-size: .78rem;
+    color: color-mix(in oklab, var(--sst-tone) 65%, var(--sst-fg));
+    background: color-mix(in oklab, var(--sst-tone) 10%, var(--sst-surface));
+}
+
+.sst .sst-component[data-status="not_configured"] .sst-bars {
+    opacity: .4;
+}
+
+/* ---------- status pill ---------- */
+.sst .sst-pill {
+    --sst-tone: var(--sst-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .12rem .6rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 700;
+    white-space: nowrap;
+    color: color-mix(in oklab, var(--sst-tone) 78%, var(--sst-fg));
+    background: color-mix(in oklab, var(--sst-tone) 15%, var(--sst-surface));
+    border: 1px solid color-mix(in oklab, var(--sst-tone) 30%, transparent);
+}
+
+.sst .sst-pill:empty {
+    display: none;
+}
+
+/* ---------- 90-day bars ---------- */
+.sst .sst-bars {
+    display: flex;
+    gap: 2px;
+    block-size: 30px;
+}
+
+.sst .sst-bars .sst-bar {
+    flex: 1 1 0;
+    min-inline-size: 0;
+    border-radius: 2px;
+    background: var(--sst-tone, var(--sst-none));
+    transform-origin: bottom;
+    transition: transform .15s var(--sst-ease), opacity .15s;
+}
+
+.sst .sst-bars .sst-bar[data-level="none"] {
+    background: var(--sst-none);
+}
+
+.sst .sst-bars .sst-bar:hover {
+    transform: scaleY(1.12);
+    opacity: .8;
+}
+
+.sst .sst-bars-legend {
+    display: flex;
+    justify-content: space-between;
+    gap: .5rem;
+    margin-block-start: .35rem;
+    font-size: .7rem;
+    color: var(--sst-muted);
+}
+
+/* ---------- tooltip ---------- */
+.sst-tooltip {
+    position: fixed;
+    z-index: 1080;
+    display: flex;
+    flex-direction: column;
+    gap: .1rem;
+    padding: .45rem .65rem;
+    border-radius: .45rem;
+    font-size: .75rem;
+    line-height: 1.35;
+    color: #fff;
+    background: rgb(17 24 39 / .94);
+    box-shadow: 0 8px 24px rgb(0 0 0 / .2);
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+/* ---------- panels and incidents ---------- */
+.sst .sst-panel {
+    margin-block-end: 1rem;
+    border: 1px solid var(--sst-border);
+    border-radius: var(--sst-radius);
+    background: var(--sst-surface);
+    box-shadow: var(--sst-shadow);
+    overflow: hidden;
+}
+
+.sst .sst-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    padding: .8rem 1.25rem;
+    border-block-end: 1px solid var(--sst-border);
+}
+
+.sst .sst-panel-title {
+    margin: 0;
+    font-size: .95rem;
+    font-weight: 700;
+}
+
+.sst .sst-panel-body {
+    padding: 1rem 1.25rem;
+}
+
+.sst .sst-empty-state {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    margin: 0;
+    color: var(--sst-muted);
+}
+
+.sst .sst-empty-state i {
+    font-size: 1.25rem;
+    color: var(--sst-ok);
+}
+
+.sst .sst-empty {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--sst-muted);
+}
+
+.sst .sst-incident {
+    --sst-tone: var(--sst-muted);
+    position: relative;
+    display: flex;
+    gap: .9rem;
+    padding-block: .2rem 1.1rem;
+}
+
+.sst .sst-incident:last-child {
+    padding-block-end: 0;
+}
+
+.sst .sst-incident:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    inset-block: 1.1rem 0;
+    inset-inline-start: calc(.4rem - 1px);
+    inline-size: 2px;
+    background: var(--sst-border);
+}
+
+.sst .sst-incident-marker {
+    flex: none;
+    inline-size: .8rem;
+    block-size: .8rem;
+    margin-block-start: .3rem;
+    border-radius: 50%;
+    background: var(--sst-surface);
+    border: 3px solid var(--sst-tone);
+}
+
+.sst .sst-incident[data-ongoing="0"] .sst-incident-marker {
+    border-color: var(--sst-ok);
+}
+
+.sst .sst-incident-body {
+    min-inline-size: 0;
+}
+
+.sst .sst-incident-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem .6rem;
+}
+
+.sst .sst-incident-state {
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--sst-ok);
+}
+
+.sst .sst-incident[data-ongoing="1"] .sst-incident-state {
+    color: var(--sst-major);
+}
+
+.sst .sst-incident-message {
+    margin: .3rem 0 .15rem;
+    font-size: .85rem;
+}
+
+.sst .sst-incident-time {
+    color: var(--sst-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- skeleton ---------- */
+.sst .sst-skeleton {
+    block-size: 180px;
+    border-radius: var(--sst-radius);
+    background:
+        linear-gradient(90deg, transparent, rgb(255 255 255 / .45), transparent) 0 0 / 50% 100% no-repeat,
+        var(--sst-surface-2);
+    animation: sst-shimmer 1.3s linear infinite;
+}
+
+/* ---------- detail modal ---------- */
+.sst.sst-detail {
+    border: 0;
+    border-radius: var(--sst-radius);
+    overflow: hidden;
+}
+
+.sst .sst-detail-head {
+    align-items: center;
+    background: var(--sst-surface-2);
+    border-block-end: 1px solid var(--sst-border);
+}
+
+.sst .sst-detail-heading {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    min-inline-size: 0;
+}
+
+.sst .sst-detail-heading .modal-title {
+    font-weight: 700;
+}
+
+.sst .sst-detail-message {
+    --sst-tone: var(--sst-degraded);
+    padding: .65rem .85rem;
+    border-radius: .5rem;
+    color: color-mix(in oklab, var(--sst-tone) 65%, var(--sst-fg));
+    background: color-mix(in oklab, var(--sst-tone) 12%, var(--sst-surface));
+}
+
+.sst .sst-signal {
+    --sst-tone: var(--sst-ok);
+    margin-block-end: 1rem;
+    padding: .65rem .85rem;
+    border-radius: .5rem;
+    border-inline-start: 4px solid var(--sst-tone);
+    background: color-mix(in oklab, var(--sst-tone) 9%, var(--sst-surface));
+    font-size: .85rem;
+}
+
+.sst .sst-signal[data-failed="1"] {
+    --sst-tone: var(--sst-major);
+}
+
+.sst .sst-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    block-size: 140px;
+    padding-block-start: .5rem;
+}
+
+.sst .sst-chart.is-loading {
+    border-radius: .5rem;
+    background:
+        linear-gradient(90deg, transparent, rgb(255 255 255 / .45), transparent) 0 0 / 50% 100% no-repeat,
+        var(--sst-surface-2);
+    animation: sst-shimmer 1.3s linear infinite;
+}
+
+.sst .sst-chart-col {
+    display: flex;
+    align-items: flex-end;
+    flex: 1 1 0;
+    min-inline-size: 0;
+    block-size: 100%;
+}
+
+.sst .sst-chart-total {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    inline-size: 100%;
+    border-radius: 3px 3px 0 0;
+    background: color-mix(in oklab, var(--sst-accent) 55%, var(--sst-surface));
+    overflow: hidden;
+    transition: opacity .15s;
+}
+
+.sst .sst-chart-col:hover .sst-chart-total {
+    opacity: .75;
+}
+
+.sst .sst-chart-errors {
+    inline-size: 100%;
+    background: var(--sst-major);
+}
+
+.sst .sst-table {
+    font-size: .82rem;
+}
+
+.sst .sst-table th {
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--sst-muted);
+    background: var(--sst-surface-2);
+    white-space: nowrap;
+}
+
+.sst .sst-table td {
+    vertical-align: middle;
+}
+
+.sst .sst-table .sst-num {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+}
+
+.sst .sst-table .sst-route {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .78rem;
+    word-break: break-all;
+}
+
+.sst .sst-table tr.has-errors td:nth-child(3) {
+    font-weight: 700;
+    color: var(--sst-major);
+}
+
+/* ---------- status tones (shared; last so they win over each element's default tone) ---------- */
+.sst [data-status="operational"],
+.sst [data-level="ok"],
+.sst [data-level="operational"] { --sst-tone: var(--sst-ok); }
+.sst [data-status="degraded"],
+.sst [data-level="degraded"] { --sst-tone: var(--sst-degraded); }
+.sst [data-level="partial"] { --sst-tone: var(--sst-partial); }
+.sst [data-status="major_outage"],
+.sst [data-level="major"] { --sst-tone: var(--sst-major); }
+.sst [data-status="not_configured"],
+.sst [data-level="none"],
+.sst [data-level="loading"] { --sst-tone: var(--sst-muted); }
+.sst [data-level="requests"] { --sst-tone: color-mix(in oklab, var(--sst-accent) 55%, var(--sst-surface)); }
+
+/* ---------- motion ---------- */
+@keyframes sst-enter {
+    from { opacity: 0; transform: translate3d(0, 8px, 0); }
+}
+
+@keyframes sst-spin {
+    to { transform: rotate(1turn); }
+}
+
+@keyframes sst-ring {
+    from { transform: scale(1); opacity: .6; }
+    to { transform: scale(1.45); opacity: 0; }
+}
+
+@keyframes sst-pulse {
+    from { transform: scale(1); opacity: .7; }
+    to { transform: scale(2.6); opacity: 0; }
+}
+
+@keyframes sst-shimmer {
+    from { background-position: -100% 0, 0 0; }
+    to { background-position: 200% 0, 0 0; }
+}
+
+@media (max-width: 575.98px) {
+    .sst .sst-hero {
+        padding: 1.15rem;
+    }
+
+    .sst .sst-hero-title {
+        font-size: 1.25rem;
+    }
+
+    .sst .sst-legend {
+        margin-inline-start: 0;
+    }
+
+    .sst .sst-search {
+        max-inline-size: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sst *,
+    .sst *::before,
+    .sst *::after {
+        animation: none !important;
+        transition: none !important;
+    }
+}

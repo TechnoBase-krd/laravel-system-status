@@ -1,0 +1,36 @@
+<?php
+
+namespace Technobase\SystemStatus\Console;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+
+class PruneStatusCommand extends Command
+{
+    protected $signature = 'status:prune';
+
+    protected $description = 'Delete System Status history older than the retention set in config/system-status.php.';
+
+    public function handle(): int
+    {
+        $days = config('system-status.retention_days');
+
+        $deleted = [
+            'status_checks' => DB::table('status_checks')
+                ->where('checked_at', '<', now()->subDays($days['checks']))->delete(),
+            'status_route_buckets' => DB::table('status_route_buckets')
+                ->where('bucket_at', '<', now()->subDays($days['route_buckets']))->delete(),
+            'status_daily' => DB::table('status_daily')
+                ->where('day', '<', now()->subDays($days['daily'])->toDateString())->delete(),
+            'status_incidents' => DB::table('status_incidents')
+                ->whereNotNull('resolved_at')
+                ->where('resolved_at', '<', now()->subDays($days['incidents']))->delete(),
+        ];
+
+        foreach ($deleted as $table => $count) {
+            $this->line("{$table}: {$count} rows deleted");
+        }
+
+        return self::SUCCESS;
+    }
+}

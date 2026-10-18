@@ -1,0 +1,42 @@
+{
+    "name": "technobase/laravel-system-status",
+    "description": "A status page for Laravel backoffices: read-only probes, real per-route traffic, signals, automatic incidents, Telegram alerts and 1h / 24h / 7d / 90d history.",
+    "type": "library",
+    "license": "proprietary",
+    "keywords": ["laravel", "status-page", "monitoring", "uptime", "incidents"],
+    "authors": [
+        {
+            "name": "TechnoBase",
+            "homepage": "https://github.com/TechnoBase-krd"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "illuminate/support": "^12.0|^13.0",
+        "illuminate/http": "^12.0|^13.0",
+        "illuminate/database": "^12.0|^13.0",
+        "illuminate/console": "^12.0|^13.0",
+        "spatie/laravel-health": "^1.29"
+    },
+    "suggest": {
+        "laravel-notification-channels/telegram": "Sends status changes to a Telegram chat.",
+        "spatie/laravel-permission": "Provides hasRole() for the page's role check."
+    },
+    "autoload": {
+        "psr-4": {
+            "Technobase\\SystemStatus\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Technobase\\SystemStatus\\SystemStatusServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
