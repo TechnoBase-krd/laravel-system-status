@@ -5,6 +5,7 @@ namespace Technobase\SystemStatus;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\ServiceProvider;
+use Technobase\SystemStatus\Console\GenerateApiTokenCommand;
 use Technobase\SystemStatus\Console\ListStatusRoutesCommand;
 use Technobase\SystemStatus\Console\PruneStatusCommand;
 use Technobase\SystemStatus\Console\RunStatusChecksCommand;
@@ -34,6 +35,7 @@ class SystemStatusServiceProvider extends ServiceProvider
                 RunStatusChecksCommand::class,
                 PruneStatusCommand::class,
                 ListStatusRoutesCommand::class,
+                GenerateApiTokenCommand::class,
             ]);
 
             $this->publishes([

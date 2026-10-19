@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- JSON API for a central dashboard that watches several applications: `<path>/api/summary` and
+  `<path>/api/components/{key}` (routes `system_status.api.summary` / `system_status.api.component`),
+  guarded by a token (`Authorization: Bearer` or `X-Status-Token`) instead of a login. Off by
+  default; `api.enabled`, `api.token`, `api.middleware` and `api.name` options
+  (`SYSTEM_STATUS_API_ENABLED`, `SYSTEM_STATUS_API_TOKEN`, `SYSTEM_STATUS_API_NAME`).
+- `status:api-token` command: generates a token and prints the `.env` lines.
 - MySQL 8 / MariaDB and SQLite support: the traffic and daily upserts and the detail popup's
   hourly chart no longer use PostgreSQL-only SQL (`Support\StatusSql`).
 - Standalone page: `layout` = `'standalone'` (or `null`) renders the page as its own full HTML

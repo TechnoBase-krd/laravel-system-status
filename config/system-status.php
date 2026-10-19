@@ -74,6 +74,19 @@ return [
         'default' => 60,
     ],
 
+    // JSON API for a central dashboard that watches several applications. Off by default.
+    // When on, <path>/api/summary and <path>/api/components/{key} answer to a request with
+    // `Authorization: Bearer <token>` (or an `X-Status-Token` header); no login or role needed.
+    // `php artisan status:api-token` generates a token.
+    'api' => [
+        'enabled' => (bool) env('SYSTEM_STATUS_API_ENABLED', false),
+        'token' => env('SYSTEM_STATUS_API_TOKEN'),
+        // Middleware of the API routes (the token check is always added).
+        'middleware' => ['throttle:60,1'],
+        // Name the API reports for this application (null = APP_NAME).
+        'name' => env('SYSTEM_STATUS_API_NAME'),
+    ],
+
     // Count every request per component (global middleware) and schedule status:check (every
     // minute) and status:prune (daily). Turn off to register them yourself.
     'record_traffic' => true,

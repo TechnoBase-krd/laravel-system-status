@@ -39,6 +39,7 @@ Used in production by Khatun-Ecommerce and CloudNova-OnlineShopping.
 - [Signals](#signals)
 - [Reacting to status changes](#reacting-to-status-changes)
 - [Access](#access)
+- [JSON API for a central dashboard](#json-api-for-a-central-dashboard)
 - [Look and feel](#look-and-feel)
 - [Translations](#translations)
 - [Commands and schedule](#commands-and-schedule)
@@ -288,6 +289,10 @@ All options live in `config/system-status.php`.
 | `standalone.back_url` | `null` (`/`) | where the back button goes when there is no previous page of the application |
 | `extra_css` | `null` | absolute path of a CSS file added after the package styles |
 | `refresh_seconds` | `['1h' => 20, 'default' => 60]` | seconds between automatic refreshes, per range |
+| `api.enabled` | `env('SYSTEM_STATUS_API_ENABLED', false)` | turn on the token-protected JSON API (see [JSON API](#json-api-for-a-central-dashboard)) |
+| `api.token` | `env('SYSTEM_STATUS_API_TOKEN')` | token the caller sends; the API answers 404 while it is empty |
+| `api.middleware` | `['throttle:60,1']` | middleware of the API routes (the token check is always added) |
+| `api.name` | `env('SYSTEM_STATUS_API_NAME')` (`APP_NAME`) | application name the API reports |
 | `record_traffic` | `true` | count every request (global middleware) |
 | `schedule` | `true` | schedule `status:check` and `status:prune` |
 | `redis_connection` | `null` | Redis connection of the traffic counters (`null` = default) |
@@ -461,6 +466,50 @@ The page shows infrastructure details, so it is closed by default.
   ```
 
 The page always needs a signed-in user (`middleware`). The data endpoints follow the same rules.
+The JSON API (below) is separate: it uses a token instead of a login.
+
+---
+
+## JSON API for a central dashboard
+
+When the package runs in several applications, one central dashboard can read all of them
+through a JSON API. The API is **off by default**. To turn it on in an application:
+
+```bash
+php artisan status:api-token   # prints the two .env lines with a new random token
+```
+
+```dotenv
+SYSTEM_STATUS_API_ENABLED=true
+SYSTEM_STATUS_API_TOKEN=<64 random characters>
+SYSTEM_STATUS_API_NAME="Khatun"   # optional, defaults to APP_NAME
+```
+
+Run `php artisan config:clear` (or `config:cache`) afterwards. Use a different token per application.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET <path>/api/summary?range=1h&locale=en` | the same data as the page: overall status, groups, components, history for the range, incidents |
+| `GET <path>/api/components/{key}?locale=en` | the detail of one component, as in the page's popup |
+
+- Send the token as `Authorization: Bearer <token>` or `X-Status-Token: <token>`. It is never
+  read from the query string, so it does not land in access logs.
+- `range` is `1h` (default for the API, the smallest answer), `24h`, `7d` or `90d`. `locale` sets
+  the language of the labels (default: the application's locale).
+- Answers: `200` with `{app: {name, environment, url}, generated_at, data}`, `401` for a missing
+  or wrong token, `404` when the API is off or the component does not exist, `422` for a bad
+  `range`, `429` above 60 requests a minute (`api.middleware`).
+- The API routes are only registered when `api.enabled` is true, and they are not counted as
+  traffic (`ignore_uris` already contains `system-status*`).
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://shop.example.com/system-status/api/summary?range=1h
+```
+
+A dashboard that polls every minute should treat a timeout or a 5xx as *the whole application
+is down*: the application cannot report that about itself. For instant updates, an application
+can also push changes to the dashboard from a `ComponentStatusChanged` listener (see
+[Reacting to status changes](#reacting-to-status-changes)).
 
 ---
 
@@ -543,6 +592,7 @@ return [
 | --- | --- | --- |
 | `status:check` | every minute (`withoutOverlapping(5)`, in background) | flushes traffic counters, runs due probes, evaluates every component, confirms changes, writes incidents, history and alerts, sends queue heartbeats |
 | `status:prune` | daily at 03:30 | deletes history older than `retention_days` |
+| `status:api-token` | by hand | prints a new random token and the `.env` lines for the JSON API |
 | `status:routes` | by hand | shows which component every route counts under (`--fallback`, `--component=`) |
 
 Set `schedule` to `false` to schedule them yourself.

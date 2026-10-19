@@ -88,6 +88,7 @@ php artisan status:check              # one run: probes, traffic, confirmation, 
 php artisan status:routes --fallback  # routes that match no component
 php artisan status:routes --component=api_orders
 php artisan status:prune              # delete history past retention_days
+php artisan status:api-token          # token + .env lines for the JSON API (<path>/api/summary)
 ```
 
 ## This application

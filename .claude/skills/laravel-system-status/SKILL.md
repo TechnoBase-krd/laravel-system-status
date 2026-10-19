@@ -20,7 +20,7 @@ namespace `Technobase\SystemStatus`. Public on Packagist (MIT); used by Khatun-E
 | `src/Support/` | `StatusRegistry` (config + labels), `RouteComponentResolver`, `StatusMetrics` (Redis counters), `StatusSignal`, `StatusTimeline` (1h / 24h / 7d) |
 | `src/Probes/` | `Probe`, `ProbeResult` and the generic probes |
 | `src/Actions/` | data for the page (`GetStatusSummaryAction`) and the detail popup (`GetStatusComponentAction`) |
-| `src/Http/` | controller, `AuthorizeSystemStatus`, `RecordRouteHealth`, `StatusSummaryRequest` |
+| `src/Http/` | page controller + `AuthorizeSystemStatus`; JSON API controller + `AuthorizeSystemStatusToken` + `ApiStatusRequest` (opt-in, token, for a central dashboard); `RecordRouteHealth`, `StatusSummaryRequest` |
 | `src/Events/ComponentStatusChanged.php` | fired on every confirmed change |
 | `config/system-status.php` | every option, documented inline |
 | `database/migrations/` | the five `status_*` tables |
