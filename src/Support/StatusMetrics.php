@@ -106,12 +106,11 @@ class StatusMetrics
         }
 
         foreach (array_chunk(array_values($rows), 500) as $chunk) {
-            DB::table('status_route_buckets')->upsert($chunk, ['component', 'route', 'bucket_at'], [
-                'requests' => DB::raw('status_route_buckets.requests + excluded.requests'),
-                'errors' => DB::raw('status_route_buckets.errors + excluded.errors'),
-                'slow' => DB::raw('status_route_buckets.slow + excluded.slow'),
-                'total_ms' => DB::raw('status_route_buckets.total_ms + excluded.total_ms'),
-            ]);
+            DB::table('status_route_buckets')->upsert(
+                $chunk,
+                ['component', 'route', 'bucket_at'],
+                StatusSql::incrementOnConflict('status_route_buckets', ['requests', 'errors', 'slow', 'total_ms']),
+            );
         }
 
         return $flushed;

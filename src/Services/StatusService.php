@@ -22,6 +22,7 @@ use Technobase\SystemStatus\Probes\ProbeResult;
 use Technobase\SystemStatus\Support\StatusMetrics;
 use Technobase\SystemStatus\Support\StatusRegistry;
 use Technobase\SystemStatus\Support\StatusSignal;
+use Technobase\SystemStatus\Support\StatusSql;
 use Throwable;
 
 /**
@@ -436,11 +437,11 @@ class StatusService
             return;
         }
 
-        DB::table('status_daily')->upsert($rows, ['component', 'day'], [
-            'runs' => DB::raw('status_daily.runs + excluded.runs'),
-            'degraded_runs' => DB::raw('status_daily.degraded_runs + excluded.degraded_runs'),
-            'outage_runs' => DB::raw('status_daily.outage_runs + excluded.outage_runs'),
-        ]);
+        DB::table('status_daily')->upsert(
+            $rows,
+            ['component', 'day'],
+            StatusSql::incrementOnConflict('status_daily', ['runs', 'degraded_runs', 'outage_runs']),
+        );
     }
 
     /**

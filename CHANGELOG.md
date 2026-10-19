@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MySQL 8 / MariaDB and SQLite support: the traffic and daily upserts and the detail popup's
+  hourly chart no longer use PostgreSQL-only SQL (`Support\StatusSql`).
 - Standalone page: `layout` = `'standalone'` (or `null`) renders the page as its own full HTML
   document with Bootstrap 4, jQuery and Font Awesome, so it works without a backoffice layout.
 - A configured `layout` view that does not exist falls back to the standalone page instead of
