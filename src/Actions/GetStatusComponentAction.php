@@ -10,6 +10,7 @@ use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Support\StatusMetrics;
 use Technobase\SystemStatus\Support\StatusRegistry;
 use Technobase\SystemStatus\Support\StatusSignal;
+use Technobase\SystemStatus\Support\StatusSql;
 
 /**
  * Detail of one component for the last 24 hours: traffic per hour, the routes with the most
@@ -32,7 +33,7 @@ class GetStatusComponentAction
             ->where('component', $component)
             ->where('route', '!=', StatusMetrics::SIGNAL_ROUTE)
             ->where('bucket_at', '>=', $since)
-            ->selectRaw("to_char(date_trunc('hour', bucket_at), 'YYYY-MM-DD HH24:00') AS hour")
+            ->selectRaw(StatusSql::hour('bucket_at').' AS hour')
             ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors')
             ->groupByRaw('1')
             ->orderByRaw('1')
