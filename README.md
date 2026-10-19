@@ -123,8 +123,8 @@ count as a failure.
 | --- | --- |
 | PHP | 8.3 or newer |
 | Laravel | 12 or 13 |
-| Database | **PostgreSQL** (the detail popup and the daily rollup use PostgreSQL SQL) |
-| Redis | for the per-minute traffic counters (any connection; see `redis_connection`) |
+| Database | PostgreSQL, MySQL 8 / MariaDB, or SQLite |
+| Redis | for the per-minute traffic counters (any connection; see `redis_connection`). Apps that share one Redis need different key prefixes (`REDIS_PREFIX` / `APP_NAME`), or they will read each other's traffic |
 | Scheduler | `php artisan schedule:work` or a cron entry running `schedule:run` every minute |
 | `spatie/laravel-health` | installed automatically; used for the database, Redis, cache and Horizon checks |
 | Layout | none required: without a backoffice layout the page renders as its own full HTML page (see [Layout](#layout)) |
@@ -607,6 +607,7 @@ Fill in its last section, *This application*, with your components and probes, a
 | An HTTP probe fails with "Cloudflare, not the app" | the firewall blocks the probe | allow the user agent or set `STATUS_PROBE_BASE_URL` |
 | A component shows "No data" | no probe ran and no traffic yet | wait a run, or add a source to the component |
 | A component shows "Not configured" | its probes return `skipped()` | configure the integration, or accept it |
+| Traffic from another application shows up | two apps share one Redis with the same key prefix | give each app its own `REDIS_PREFIX` (or `redis_connection`) |
 | A component name looks like "Api Orders" | no label for it | add `status_component_<key>` in `lang/vendor/system-status` |
 | 403 on the page | the user has none of `access.roles` (or fails `access.gate`) | change the access settings |
 | No Telegram alerts | `local` environment, no chat id, no bot token, `SYSTEM_STATUS_ALERTS_ENABLED=false`, or the Telegram package missing | check those |

@@ -1,6 +1,6 @@
 ---
 name: laravel-system-status
-description: Working on the technobase/laravel-system-status package itself — its structure, what belongs in the package versus an application, backward compatibility for the projects that use it (Khatun-Ecommerce, CloudNova-OnlineShopping), PostgreSQL-only SQL, migrations, translations, configuration keys, the ComponentStatusChanged event, the publishable Claude skill, screenshots and the release process. Use for any change in this repository.
+description: Working on the technobase/laravel-system-status package itself — its structure, what belongs in the package versus an application, backward compatibility for the projects that use it (Khatun-Ecommerce, CloudNova-OnlineShopping), driver-specific SQL, migrations, translations, configuration keys, the ComponentStatusChanged event, the publishable Claude skill, screenshots and the release process. Use for any change in this repository.
 ---
 
 # Maintaining technobase/laravel-system-status
@@ -42,8 +42,9 @@ namespace `Technobase\SystemStatus`. Public on Packagist (MIT); used by Khatun-E
 - **Migrations.** Never change a released migration's columns; add a new migration. Table
   creation is guarded with `Schema::hasTable()` so a database that already has the tables is
   safe. Keep the original file name `2026_10_18_120000_create_status_tables.php`.
-- **PostgreSQL.** The detail popup uses `to_char` / `date_trunc` and the daily rollup uses an
-  upsert with `excluded`; supporting another database means rewriting those queries.
+- **Databases.** PostgreSQL, MySQL / MariaDB and SQLite are supported. SQL that differs per
+  driver lives in `Support\StatusSql` (incrementing upserts, hour formatting); add new
+  driver-specific SQL there, never inline in a query.
 - **Never throw from counting.** `StatusMetrics::record()`, `StatusSignal` and event listeners
   are wrapped so a status problem never breaks a request or a run.
 - **No secrets in messages.** Probe messages use the exception class, never the raw message.
