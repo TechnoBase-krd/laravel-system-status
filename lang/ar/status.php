@@ -4,6 +4,7 @@
 // project's own components) in lang/vendor/system-status/ar/status.php of the application.
 return [
     'close' => 'إغلاق',
+    'back' => 'رجوع',
     'status' => 'حالة',
     'status_avg_ms' => 'متوسط ms',
     'status_avg_response' => 'متوسط الاستجابة',

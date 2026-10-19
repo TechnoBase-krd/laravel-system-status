@@ -19,11 +19,32 @@ class SystemStatusController extends Controller
     {
         $extra = config('system-status.extra_css');
 
+        $layout = $this->layout();
+
         return view('system-status::index', [
+            'layout' => $layout,
+            // The name in the page's description: the brand on the standalone page, else the app's.
+            'appName' => $layout === 'system-status::layouts.standalone'
+                ? (config('system-status.standalone.brand') ?: 'TechnoBase')
+                : config('app.name'),
             'styles' => (string) file_get_contents(dirname(__DIR__, 3).'/resources/css/system-status.css'),
             // Optional branding: a CSS file of the application, added after the package styles.
             'extraStyles' => filled($extra) && is_file($extra) ? (string) file_get_contents($extra) : null,
         ]);
+    }
+
+    /**
+     * The application's layout when it exists, otherwise the package's own full page.
+     */
+    private function layout(): string
+    {
+        $layout = config('system-status.layout', 'layouts.app');
+
+        if (blank($layout) || $layout === 'standalone' || ! view()->exists($layout)) {
+            return 'system-status::layouts.standalone';
+        }
+
+        return $layout;
     }
 
     public function summary(StatusSummaryRequest $request, GetStatusSummaryAction $action): JsonResponse

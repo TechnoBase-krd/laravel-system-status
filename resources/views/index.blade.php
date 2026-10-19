@@ -1,4 +1,4 @@
-@extends(config('system-status.layout', 'layouts.app'))
+@extends($layout ?? config('system-status.layout', 'layouts.app'))
 
 @push(config('system-status.stacks.styles', 'styles'))
     <style>{!! $styles !!}</style>
@@ -23,7 +23,7 @@
                 <div class="sst-hero-text">
                     <span class="sst-hero-eyebrow">@lang('system-status::status.system_status')</span>
                     <h2 class="sst-hero-title" id="sstHeroTitle">@lang('system-status::status.status_loading')</h2>
-                    <p class="sst-hero-meta" id="sstHeroMeta">@lang('system-status::status.system_status_description', ['app' => config('app.name')])</p>
+                    <p class="sst-hero-meta" id="sstHeroMeta">@lang('system-status::status.system_status_description', ['app' => $appName ?? config('app.name')])</p>
                 </div>
             </div>
             <div class="sst-hero-actions">

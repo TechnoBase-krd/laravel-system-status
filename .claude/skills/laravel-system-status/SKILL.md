@@ -9,8 +9,7 @@ description: Working on the technobase/laravel-system-status package itself — 
 
 A status page for Laravel backoffices, extracted from Khatun-Ecommerce. Repository
 `TechnoBase-krd/laravel-system-status`; Composer name `technobase/laravel-system-status`;
-namespace `Technobase\SystemStatus`. Used by Khatun-Ecommerce and CloudNova-OnlineShopping
-through a private `vcs` repository with `preferred-install` = `source` for `technobase/*`.
+namespace `Technobase\SystemStatus`. Public on Packagist (MIT); used by Khatun-Ecommerce and CloudNova-OnlineShopping.
 
 ## Layout
 
@@ -25,7 +24,8 @@ through a private `vcs` repository with `preferred-install` = `source` for `tech
 | `src/Events/ComponentStatusChanged.php` | fired on every confirmed change |
 | `config/system-status.php` | every option, documented inline |
 | `database/migrations/` | the five `status_*` tables |
-| `resources/views/index.blade.php` | the page (jQuery, Bootstrap modal, Font Awesome) |
+| `resources/views/index.blade.php` | the page (jQuery, Bootstrap modal, Font Awesome); extends the `$layout` the controller resolves |
+| `resources/views/layouts/standalone.blade.php` | the package's own full HTML page, used for `layout` = `'standalone'` / `null` or a missing layout view |
 | `resources/css/system-status.css` | page styles, `--sst-*` variables on `.sst` |
 | `resources/claude/SKILL.md` | the skill applications publish with `--tag=system-status-skill` |
 | `lang/{en,ar,ku}/status.php` | all page text and generic component labels |
@@ -61,7 +61,8 @@ There are no automated tests yet. Before a release:
    (`{"type": "path", "url": "../laravel-system-status", "options": {"symlink": true}}`),
    run `composer dump-autoload`, then: `php artisan route:list --path=system-status`,
    `php artisan status:routes --fallback`, `php artisan status:check`, and open the page as a
-   Super Admin. Switch the application back to the `vcs` repository afterwards.
+   Super Admin, once with the application's layout and once with `'layout' => 'standalone'`.
+   Switch the application back to the Packagist version afterwards.
 3. Screenshots: a throwaway Laravel app with the package, a Bootstrap 4 + jQuery + Font Awesome
    layout and sample rows in the `status_*` tables; capture with headless Chrome at 1440 px
    (desktop) and 390 px (phone).

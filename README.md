@@ -127,8 +127,8 @@ count as a failure.
 | Redis | for the per-minute traffic counters (any connection; see `redis_connection`) |
 | Scheduler | `php artisan schedule:work` or a cron entry running `schedule:run` every minute |
 | `spatie/laravel-health` | installed automatically; used for the database, Redis, cache and Horizon checks |
-| Backoffice layout | a Blade layout with `@yield('title')`, `@yield('content')` and stacks for styles, modals and scripts |
-| Front end | jQuery, the Bootstrap 4 modal plugin and Font Awesome 5 or 6 on that layout (the Limitless theme has all three) |
+| Layout | none required: without a backoffice layout the page renders as its own full HTML page (see [Layout](#layout)) |
+| Front end | jQuery, the Bootstrap 4 modal plugin and Font Awesome 5 or 6; the standalone page loads them itself |
 
 Optional:
 
@@ -280,8 +280,12 @@ All options live in `config/system-status.php`.
 | `middleware` | `['web', 'auth']` | middleware of the page routes (the access check is always added) |
 | `access.roles` | `['Super Admin']` | roles allowed in, checked with `$user->hasRole()` |
 | `access.gate` | `null` | a Gate ability name; when set, it replaces the role check |
-| `layout` | `layouts.app` | Blade layout the page extends |
+| `layout` | `layouts.app` | Blade layout the page extends; `'standalone'` (or `null`, or a view that does not exist) = the package's own full page |
 | `stacks.styles` / `.modals` / `.scripts` | `styles` / `modals` / `scripts` | stack names in that layout |
+| `standalone.css` / `.js` | Bootstrap 4.6, Font Awesome 6, jQuery 3.7 from a CDN | assets of the standalone page; point them at local files for an offline server or a strict CSP |
+| `standalone.rtl_locales` | `ar`, `ku`, `ckb`, `fa`, `he`, `ur` | locales the standalone page shows right to left |
+| `standalone.brand` | `TechnoBase` | name in the standalone page's top bar, browser title and description line |
+| `standalone.back_url` | `null` (`/`) | where the back button goes when there is no previous page of the application |
 | `extra_css` | `null` | absolute path of a CSS file added after the package styles |
 | `refresh_seconds` | `['1h' => 20, 'default' => 60]` | seconds between automatic refreshes, per range |
 | `record_traffic` | `true` | count every request (global middleware) |
@@ -482,7 +486,21 @@ The page follows the host theme: its colours use `--success`, `--warning`, `--da
 }
 ```
 
-**Layout**: set `layout` and `stacks` to match your backoffice layout.
+### Layout
+
+The page works in any Laravel application, with or without a backoffice:
+
+- **Inside your backoffice** (sidebar, header, your theme): set `layout` to your layout view and
+  `stacks` to its stack names. The layout needs `@yield('title')`, `@yield('content')`, the
+  three stacks, and jQuery, the Bootstrap 4 modal plugin and Font Awesome.
+- **As its own page**: set `layout` to `'standalone'`. The package renders a complete HTML
+  page (`system-status::layouts.standalone`) that loads Bootstrap, jQuery and Font Awesome
+  itself (`standalone.css` / `standalone.js`), follows the locale's direction (RTL for Arabic
+  and Kurdish) and needs nothing from the application. Its top bar has a back button (to the
+  previous page, or `standalone.back_url`) and the `standalone.brand` name.
+
+When the configured `layout` view does not exist, the standalone page is used, so a fresh
+install never fails on a missing `layouts.app`. Access rules are the same in both modes.
 
 **Full control**: publish the view and edit it.
 

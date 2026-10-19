@@ -4,6 +4,7 @@
 // project's own components) in lang/vendor/system-status/en/status.php of the application.
 return [
     'close' => 'Close',
+    'back' => 'Back',
     'status' => 'Status',
     'status_avg_ms' => 'Avg ms',
     'status_avg_response' => 'Avg response',

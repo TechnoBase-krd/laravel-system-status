@@ -4,6 +4,7 @@
 // project's own components) in lang/vendor/system-status/ku/status.php of the application.
 return [
     'close' => 'داخستن',
+    'back' => 'گەڕانەوە',
     'status' => 'دۆخ',
     'status_avg_ms' => 'تێکڕای ms',
     'status_avg_response' => 'تێکڕای وەڵامدانەوە',

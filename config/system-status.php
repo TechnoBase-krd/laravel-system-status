@@ -33,12 +33,35 @@ return [
         // A Gate ability name (e.g. 'viewSystemStatus'). When set, it replaces the role check.
         'gate' => null,
     ],
+    // A Blade layout of the application with @yield('title'), @yield('content') and the stacks
+    // below, plus jQuery, the Bootstrap 4 modal plugin and Font Awesome. 'standalone' (or null)
+    // uses the package's own full page instead; so does a layout view that does not exist.
     'layout' => 'layouts.app',
     // Stack names the layout renders; the page pushes its CSS, modal and script into them.
     'stacks' => [
         'styles' => 'styles',
         'modals' => 'modals',
         'scripts' => 'scripts',
+    ],
+
+    // Assets of the standalone page. Point them at local copies for an offline server or a
+    // strict Content-Security-Policy.
+    'standalone' => [
+        'css' => [
+            'https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css',
+            'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css',
+        ],
+        'js' => [
+            'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js',
+            'https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js',
+        ],
+        // Locales shown right to left.
+        'rtl_locales' => ['ar', 'ku', 'ckb', 'fa', 'he', 'ur'],
+        // Name in the top bar and the browser title.
+        'brand' => 'TechnoBase',
+        // Where the back button goes when there is no previous page of the application
+        // (null = the home page, '/').
+        'back_url' => null,
     ],
 
     // Absolute path of a CSS file added after the package styles, for branding. The page uses

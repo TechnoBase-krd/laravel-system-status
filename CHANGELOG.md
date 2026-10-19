@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Standalone page: `layout` = `'standalone'` (or `null`) renders the page as its own full HTML
+  document with Bootstrap 4, jQuery and Font Awesome, so it works without a backoffice layout.
+- A configured `layout` view that does not exist falls back to the standalone page instead of
+  an error.
+- `standalone.css`, `standalone.js`, `standalone.rtl_locales`, `standalone.brand` (default
+  `TechnoBase`) and `standalone.back_url` options; a back button in the standalone top bar.
+- `back` translation (en, ar, ku).
+
 ## v1.1.0 - 2026-10-18
 
 - `ComponentStatusChanged` event on every confirmed status change.
