@@ -1,5 +1,10 @@
 # Laravel System Status
 
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/technobase/laravel-system-status.svg)](https://packagist.org/packages/technobase/laravel-system-status)
+[![Total Downloads](https://img.shields.io/packagist/dt/technobase/laravel-system-status.svg)](https://packagist.org/packages/technobase/laravel-system-status)
+[![PHP Version](https://img.shields.io/packagist/php-v/technobase/laravel-system-status.svg)](https://packagist.org/packages/technobase/laravel-system-status)
+[![License](https://img.shields.io/packagist/l/technobase/laravel-system-status.svg)](LICENSE)
+
 `technobase/laravel-system-status` adds a live status page to a Laravel backoffice, in the
 style of githubstatus.com. It shows whether every part of the application works (database,
 queues, APIs, backoffice screens, payment and delivery integrations), keeps 90 days of
@@ -42,6 +47,7 @@ Used in production by Khatun-Ecommerce and CloudNova-OnlineShopping.
 - [Deployment](#deployment)
 - [Troubleshooting](#troubleshooting)
 - [Upgrading and releases](#upgrading-and-releases)
+- [License](#license)
 
 ---
 
@@ -133,19 +139,8 @@ Optional:
 
 ## Installation
 
-The package is private. Add the repository and tell Composer to clone it over SSH (without the
-GitHub API, which would need a token for a private repository):
-
-```json
-{
-    "repositories": [
-        { "type": "vcs", "url": "git@github.com:TechnoBase-krd/laravel-system-status.git", "no-api": true }
-    ],
-    "config": {
-        "preferred-install": { "technobase/*": "source", "*": "dist" }
-    }
-}
-```
+Install the package from [Packagist](https://packagist.org/packages/technobase/laravel-system-status)
+with Composer, publish the config and run the migrations:
 
 ```bash
 composer require technobase/laravel-system-status
@@ -568,22 +563,13 @@ Fill in its last section, *This application*, with your components and probes, a
 
 ## Deployment
 
-- **Composer access.** Every machine or container that runs `composer install` needs read
-  access to `TechnoBase-krd/laravel-system-status`: an SSH key with read access (a GitHub deploy
-  key), or a GitHub token in `COMPOSER_AUTH` (`{"github-oauth": {"github.com": "<token>"}}`) with
-  the URL `https://github.com/TechnoBase-krd/laravel-system-status.git`.
-- **Servers without git or SSH (Docker images).** Keep the SSH repository for developers and,
-  on the server, give Composer a read-only GitHub token and install from the zip that
-  `composer.lock` records:
-
-  ```bash
-  # once, in the project folder on the server (auth.json is git-ignored by Laravel)
-  echo '{"github-oauth": {"github.com": "<token>"}}' > auth.json && chmod 600 auth.json
-  # every deploy
-  composer install --prefer-dist --no-interaction
-  ```
-
-  The token needs read access to this repository only (fine-grained token, Contents: Read-only).
+- **Composer.** The package is public on Packagist, so a normal
+  `composer install --no-dev --prefer-dist --no-interaction` works on any server or Docker
+  image; no SSH key, deploy key or GitHub token is needed.
+- **Moving from the old private setup.** If your application still has the `vcs` repository for
+  `TechnoBase-krd/laravel-system-status` (and `preferred-install` for `technobase/*`) in its
+  `composer.json`, remove them, delete any `auth.json` / `COMPOSER_AUTH` added only for this
+  package, and run `composer update technobase/laravel-system-status`.
 - **Scheduler.** `schedule:run` must run every minute (cron or a scheduler container), otherwise
   the page shows the scheduler red and nothing updates.
 - **Queues.** List in `queues` only queues that always have a worker.
@@ -613,10 +599,10 @@ Fill in its last section, *This application*, with your components and probes, a
 ## Upgrading and releases
 
 Versions follow semantic versioning: `1.x` releases never rename or remove a config key, route
-gitname, translation key, class or event property. See [CHANGELOG.md](CHANGELOG.md) and the
+name, translation key, class or event property. See [CHANGELOG.md](CHANGELOG.md) and the
 [GitHub Releases](https://github.com/TechnoBase-krd/laravel-system-status/releases).
 
-**Releases are automatic.** On every push to `main`, the *Release* workflow
+**Releases are automatic.** Packagist picks up every new tag through the GitHub webhook. On every push to `main`, the *Release* workflow
 (`.github/workflows/release.yml`) checks the PHP syntax and `composer.json`, reads the commit
 messages since the last tag and, when needed, creates the next tag and a GitHub Release with
 notes:
@@ -636,3 +622,16 @@ composer update technobase/laravel-system-status
 ```
 
 To work on the package itself, see `.claude/skills/laravel-system-status/SKILL.md`.
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome on
+[GitHub](https://github.com/TechnoBase-krd/laravel-system-status). Use
+[Conventional Commits](https://www.conventionalcommits.org/) messages (`feat:`, `fix:`, `docs:`, …):
+they decide the next version.
+
+## License
+
+The MIT License (MIT). See [LICENSE](LICENSE).
