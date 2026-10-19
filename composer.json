@@ -2,7 +2,7 @@
     "name": "technobase/laravel-system-status",
     "description": "A status page for Laravel backoffices: read-only probes, real per-route traffic, signals, automatic incidents, Telegram alerts and 1h / 24h / 7d / 90d history.",
     "type": "library",
-    "license": "proprietary",
+    "license": "MIT",
     "keywords": ["laravel", "status-page", "monitoring", "uptime", "incidents"],
     "authors": [
         {
