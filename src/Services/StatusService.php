@@ -8,17 +8,20 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Notification;
-use NotificationChannels\Telegram\TelegramMessage;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Events\ComponentStatusChanged;
+use Technobase\SystemStatus\Events\MaintenanceEnded;
+use Technobase\SystemStatus\Events\MaintenanceStarted;
 use Technobase\SystemStatus\Jobs\StatusHeartbeatJob;
 use Technobase\SystemStatus\Models\StatusCheck;
 use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Models\StatusIncident;
-use Technobase\SystemStatus\Notifications\StatusAlertNotification;
+use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Probes\Probe;
 use Technobase\SystemStatus\Probes\ProbeResult;
+use Technobase\SystemStatus\Support\LatencyHistogram;
+use Technobase\SystemStatus\Support\StatusAlerter;
+use Technobase\SystemStatus\Support\StatusDuration;
 use Technobase\SystemStatus\Support\StatusMetrics;
 use Technobase\SystemStatus\Support\StatusRegistry;
 use Technobase\SystemStatus\Support\StatusSignal;
@@ -36,7 +39,16 @@ class StatusService
     public function __construct(
         private readonly StatusMetrics $metrics,
         private readonly StatusRegistry $registry,
+        private readonly StatusAlerter $alerter,
     ) {}
+
+    /**
+     * This run's failing components that depend on another failing component ('depends_on'),
+     * mapped to the root cause.
+     *
+     * @var array<string, string>
+     */
+    private array $affectedBy = [];
 
     /**
      * @return array{flushed_minutes: int, probes_run: int, changes: array<int, string>}
@@ -44,6 +56,7 @@ class StatusService
     public function run(): array
     {
         $now = now();
+        $this->alerter->begin();
         $this->recordSchedulerGap($now);
 
         $flushed = 0;
@@ -55,24 +68,51 @@ class StatusService
 
         [$probeResults, $probesRun] = $this->runProbes($now);
         $this->dispatchQueueHeartbeats($now);
+        $maintenance = $this->maintenanceWindows($now);
         $traffic = $this->traffic($now);
+        $manual = $this->openManualIncidents();
 
         $changes = [];
         $daily = [];
+        $evaluated = [];
 
         foreach ($this->registry->components() as $component => $entry) {
-            [$status, $message, $configured] = $this->evaluate(
+            $evaluated[$component] = $this->evaluate(
                 $component,
                 $entry['definition'],
                 $probeResults[$component] ?? [],
                 $traffic[$component] ?? [],
+                $manual[$component] ?? null,
             );
+        }
 
-            $state = $this->applyStatus($component, $status, $message, $configured, $now, $changes);
+        $this->affectedBy = [];
+        $applied = [];
+
+        // Dependencies first, so a component sees its dependency's status after this run.
+        foreach ($this->dependencyOrder(array_keys($evaluated)) as $component) {
+            [$status, $message, $configured] = $evaluated[$component];
+
+            if (! isset($maintenance[$component]) && ($root = $this->failingDependency($component, $status, $evaluated, $applied, $maintenance))) {
+                $this->affectedBy[$component] = $root;
+                $message = trim('Affected by '.$this->registry->label($root, 'en').($message ? ' — '.$message : ''));
+            }
+
+            $state = isset($maintenance[$component])
+                ? $this->applyMaintenance($component, $maintenance[$component], $configured, $now)
+                : $this->applyStatus($component, $status, $message, $configured, $now, $changes);
+            $applied[$component] = $state->status;
             $daily[] = $this->dailyRow($component, $state->status, $now);
         }
 
         $this->addDaily($daily);
+        $this->sendReminders($now, $maintenance);
+        $this->alerter->flush($this->affectedBy, $this->registry);
+        $this->alerter->flappingEnded(function (string $component) {
+            $status = StatusComponent::query()->where('component', $component)->value('status');
+
+            return $this->registry->label($component, 'en').' is '.str_replace('_', ' ', $status instanceof ComponentStatus ? $status->value : (string) $status);
+        });
 
         return ['flushed_minutes' => $flushed, 'probes_run' => $probesRun, 'changes' => $changes];
     }
@@ -171,7 +211,7 @@ class StatusService
     /**
      * Requests and errors per component over the window, split into routes and signals.
      *
-     * @return array<string, array{routes?: array{requests: int, errors: int}, signal?: array{requests: int, errors: int}}>
+     * @return array<string, array{routes?: array{requests: int, errors: int, latency: array<int, int>}, signal?: array{requests: int, errors: int}}>
      */
     private function traffic(CarbonInterface $now): array
     {
@@ -180,7 +220,7 @@ class StatusService
         $rows = DB::table('status_route_buckets')
             ->where('bucket_at', '>=', $since)
             ->selectRaw("component, CASE WHEN route = '".StatusMetrics::SIGNAL_ROUTE."' THEN 1 ELSE 0 END AS is_signal")
-            ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors')
+            ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors, '.LatencyHistogram::sumSelect())
             ->groupByRaw('component, is_signal')
             ->get();
 
@@ -189,18 +229,70 @@ class StatusService
             $traffic[$row->component][(int) $row->is_signal === 1 ? 'signal' : 'routes'] = [
                 'requests' => (int) $row->requests,
                 'errors' => (int) $row->errors,
+                'latency' => LatencyHistogram::fromRow($row),
             ];
+        }
+
+        // Errors from the work itself (a deploy, a migration) must not count once a maintenance
+        // window is over: only traffic recorded after the window ended is used.
+        foreach ($this->recentlyEndedMaintenance($since) as $component => $endedAt) {
+            unset($traffic[$component]);
+
+            DB::table('status_route_buckets')
+                ->where('component', $component)
+                ->where('bucket_at', '>=', $endedAt)
+                ->selectRaw("CASE WHEN route = '".StatusMetrics::SIGNAL_ROUTE."' THEN 1 ELSE 0 END AS is_signal")
+                ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors, '.LatencyHistogram::sumSelect())
+                ->groupByRaw('is_signal')
+                ->get()
+                ->each(function ($row) use (&$traffic, $component) {
+                    $traffic[$component][(int) $row->is_signal === 1 ? 'signal' : 'routes'] = [
+                        'requests' => (int) $row->requests,
+                        'errors' => (int) $row->errors,
+                        'latency' => LatencyHistogram::fromRow($row),
+                    ];
+                });
         }
 
         return $traffic;
     }
 
     /**
+     * Components whose maintenance window ended inside the traffic window, with the end time.
+     *
+     * @return array<string, CarbonInterface>
+     */
+    private function recentlyEndedMaintenance(CarbonInterface $since): array
+    {
+        $ended = [];
+
+        try {
+            StatusMaintenance::query()->where('ends_at', '>', $since)->where('ends_at', '<=', now())->get()
+                ->each(function (StatusMaintenance $maintenance) use (&$ended) {
+                    foreach ((array) $maintenance->components as $component) {
+                        if (! isset($ended[$component]) || $maintenance->ends_at->gt($ended[$component])) {
+                            $ended[$component] = $maintenance->ends_at;
+                        }
+                    }
+                });
+        } catch (Throwable $e) {
+            Log::warning('Status maintenance windows could not be read.', ['exception' => $e::class]);
+        }
+
+        return $ended;
+    }
+
+    /**
      * @return array{0: ComponentStatus, 1: ?string, 2: bool} status, message, configured
      */
-    private function evaluate(string $component, array $definition, array $probeResults, array $traffic): array
+    private function evaluate(string $component, array $definition, array $probeResults, array $traffic, ?StatusIncident $manual = null): array
     {
         $sources = [];
+
+        // An open incident posted by hand holds the component at its severity until resolved.
+        if ($manual) {
+            $sources[] = [$manual->severity, $manual->title ?: $manual->message];
+        }
 
         foreach ($probeResults as $result) {
             if (! $result->isSkipped()) {
@@ -214,16 +306,19 @@ class StatusService
 
         if (isset($traffic['routes'])) {
             $sources[] = $this->rateSource(
+                $component,
                 $traffic['routes'],
-                (int) config('system-status.thresholds.min_requests', 20),
+                (int) $this->registry->threshold($component, 'min_requests', 20),
                 ':errors of :requests requests failed (5xx) in the last :minutes min',
             );
+            $sources[] = $this->latencySource($component, $traffic['routes']);
         }
 
         if (isset($traffic['signal'])) {
             $source = $this->rateSource(
+                $component,
                 $traffic['signal'],
-                (int) config('system-status.thresholds.min_signals', 3),
+                (int) $this->registry->threshold($component, 'min_signals', 3),
                 ':errors of :requests calls failed in the last :minutes min',
             );
 
@@ -248,9 +343,29 @@ class StatusService
     }
 
     /**
+     * The most severe open manual incident of each component.
+     *
+     * @return array<string, StatusIncident>
+     */
+    private function openManualIncidents(): array
+    {
+        try {
+            return StatusIncident::query()->open()->manual()->get()
+                ->sortByDesc(fn (StatusIncident $incident) => $incident->severity->severity())
+                ->unique('component')
+                ->keyBy('component')
+                ->all();
+        } catch (Throwable $e) {
+            Log::warning('Manual status incidents could not be read.', ['exception' => $e::class]);
+
+            return [];
+        }
+    }
+
+    /**
      * @return array{0: ComponentStatus, 1: ?string}
      */
-    private function rateSource(array $counts, int $minimum, string $template): array
+    private function rateSource(string $component, array $counts, int $minimum, string $template): array
     {
         if ($counts['requests'] < $minimum || $counts['errors'] === 0) {
             return [ComponentStatus::Operational, null];
@@ -264,10 +379,99 @@ class StatusService
         ]).' ('.round($rate).'%)';
 
         return match (true) {
-            $rate >= (float) config('system-status.thresholds.outage_error_rate', 25) => [ComponentStatus::MajorOutage, $message],
-            $rate >= (float) config('system-status.thresholds.degraded_error_rate', 5) => [ComponentStatus::Degraded, $message],
+            $rate >= (float) $this->registry->threshold($component, 'outage_error_rate', 25) => [ComponentStatus::MajorOutage, $message],
+            $rate >= (float) $this->registry->threshold($component, 'degraded_error_rate', 5) => [ComponentStatus::Degraded, $message],
             default => [ComponentStatus::Operational, null],
         };
+    }
+
+    /**
+     * Slowness without errors: the p95 response time over the window against
+     * latency_degraded_p95_ms / latency_outage_p95_ms (both off by default).
+     *
+     * @return array{0: ComponentStatus, 1: ?string}
+     */
+    private function latencySource(string $component, array $counts): array
+    {
+        $degradedMs = $this->registry->threshold($component, 'latency_degraded_p95_ms');
+        $outageMs = $this->registry->threshold($component, 'latency_outage_p95_ms');
+
+        if ((! $degradedMs && ! $outageMs)
+            || $counts['requests'] < (int) $this->registry->threshold($component, 'min_requests', 20)
+            || ($p95 = LatencyHistogram::percentile($counts['latency'] ?? [], 95)) === null) {
+            return [ComponentStatus::Operational, null];
+        }
+
+        $minutes = (int) config('system-status.thresholds.window_minutes', 15);
+        $message = fn (int $limit) => "p95 response time {$p95} ms in the last {$minutes} min (limit {$limit} ms)";
+
+        return match (true) {
+            $outageMs && $p95 > (int) $outageMs => [ComponentStatus::MajorOutage, $message((int) $outageMs)],
+            $degradedMs && $p95 > (int) $degradedMs => [ComponentStatus::Degraded, $message((int) $degradedMs)],
+            default => [ComponentStatus::Operational, null],
+        };
+    }
+
+    /**
+     * Component keys with each one's dependencies ('depends_on') before it; cycles are broken.
+     *
+     * @param  array<int, string>  $components
+     * @return array<int, string>
+     */
+    private function dependencyOrder(array $components): array
+    {
+        $definitions = $this->registry->components();
+        $ordered = [];
+        $visiting = [];
+
+        $visit = function (string $component) use (&$visit, &$ordered, &$visiting, $definitions, $components) {
+            if (isset($ordered[$component]) || isset($visiting[$component]) || ! in_array($component, $components, true)) {
+                return;
+            }
+
+            $visiting[$component] = true;
+            foreach ((array) ($definitions[$component]['definition']['depends_on'] ?? []) as $dependency) {
+                $visit((string) $dependency);
+            }
+            unset($visiting[$component]);
+            $ordered[$component] = true;
+        };
+
+        foreach ($components as $component) {
+            $visit($component);
+        }
+
+        return array_keys($ordered);
+    }
+
+    /**
+     * The root cause when a failing component depends on a component that is failing too (its
+     * confirmed status after this run, or what this run observed); null otherwise.
+     *
+     * @param  array<string, array{0: ComponentStatus, 1: ?string, 2: bool}>  $evaluated
+     * @param  array<string, ComponentStatus>  $applied
+     * @param  array<string, StatusMaintenance>  $maintenance
+     */
+    private function failingDependency(string $component, ComponentStatus $observed, array $evaluated, array $applied, array $maintenance): ?string
+    {
+        if (! $observed->isProblem()) {
+            return null;
+        }
+
+        $dependencies = (array) ($this->registry->components()[$component]['definition']['depends_on'] ?? []);
+
+        foreach ($dependencies as $dependency) {
+            if ($dependency === $component || ! isset($evaluated[$dependency]) || isset($maintenance[$dependency])) {
+                continue;
+            }
+
+            $failing = $evaluated[$dependency][0]->isProblem() || ($applied[$dependency] ?? null)?->isProblem();
+            if ($failing) {
+                return $this->affectedBy[$dependency] ?? $dependency;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -288,12 +492,35 @@ class StatusService
 
         $state->configured = $configured;
         $state->checked_at = $now;
+        $wasAffectedBy = $state->affected_by;
+        $state->affected_by = $this->affectedBy[$component] ?? null;
+
+        // Leaving a maintenance window: back to operational; a problem found after the work
+        // must be confirmed like any other change.
+        if ($state->status === ComponentStatus::Maintenance) {
+            $state->status = ComponentStatus::Operational;
+            $state->changed_at = $now;
+            $state->candidate_status = null;
+            $state->candidate_runs = 0;
+
+            if ($observed === ComponentStatus::Operational) {
+                // An incident left open from before the window is over now.
+                $this->recordIncident($component, ComponentStatus::Operational, $observed, $message, $now);
+            }
+        }
 
         if ($observed === $state->status) {
             $state->candidate_status = null;
             $state->candidate_runs = 0;
             $state->message = $message;
             $state->save();
+
+            // The dependency recovered but this component did not: now it is its own problem.
+            if ($wasAffectedBy && ! $state->affected_by && $observed->isProblem()) {
+                StatusIncident::query()->open()->where('component', $component)->update(['affected_by' => null]);
+                $name = $this->registry->label($component, 'en');
+                $this->alerter->change($component, trim("🟠 {$name}: still {$this->statusWords($observed)} after ".$this->registry->label($wasAffectedBy, 'en').' recovered. '.($message ?? '')), $name);
+            }
 
             return $state;
         }
@@ -307,7 +534,7 @@ class StatusService
             $state->candidate_runs = 1;
         }
 
-        if ($state->candidate_runs >= max(1, (int) config('system-status.thresholds.confirm_runs', 2))) {
+        if ($state->candidate_runs >= max(1, (int) $this->registry->threshold($component, 'confirm_runs', 2))) {
             $previous = $state->status;
             $state->status = $observed;
             $state->message = $message;
@@ -329,6 +556,120 @@ class StatusService
     }
 
     /**
+     * A component inside a maintenance window shows Maintenance straight away: no confirmation,
+     * no incident, no alert and no ComponentStatusChanged event.
+     */
+    private function applyMaintenance(string $component, StatusMaintenance $maintenance, bool $configured, CarbonInterface $now): StatusComponent
+    {
+        $state = StatusComponent::query()->firstOrNew(['component' => $component], [
+            'status' => ComponentStatus::Operational,
+            'candidate_runs' => 0,
+        ]);
+
+        if ($state->status !== ComponentStatus::Maintenance) {
+            $state->changed_at = $now;
+        }
+
+        $state->status = ComponentStatus::Maintenance;
+        $state->message = $maintenance->title;
+        $state->configured = $configured;
+        $state->candidate_status = null;
+        $state->candidate_runs = 0;
+        $state->checked_at = $now;
+        $state->save();
+
+        return $state;
+    }
+
+    /**
+     * Active maintenance windows keyed by component. Fires MaintenanceStarted for windows that
+     * just began and MaintenanceEnded for windows that are over.
+     *
+     * @return array<string, StatusMaintenance>
+     */
+    private function maintenanceWindows(CarbonInterface $now): array
+    {
+        try {
+            StatusMaintenance::query()->active($now)->whereNull('announced_at')->get()
+                ->each(function (StatusMaintenance $maintenance) use ($now) {
+                    $maintenance->update(['announced_at' => $now]);
+                    $this->safely(fn () => event(new MaintenanceStarted($maintenance)));
+                    $this->alerter->event('maintenance.started', $this->maintenancePayload($maintenance));
+                });
+
+            StatusMaintenance::query()->where('ends_at', '<=', $now)->whereNull('ended_at')->get()
+                ->each(function (StatusMaintenance $maintenance) use ($now) {
+                    $maintenance->update(['ended_at' => $now, 'announced_at' => $maintenance->announced_at ?? $maintenance->starts_at]);
+                    $this->safely(fn () => event(new MaintenanceEnded($maintenance)));
+                    $this->alerter->event('maintenance.ended', $this->maintenancePayload($maintenance));
+                });
+
+            return StatusMaintenance::activeByComponent($now);
+        } catch (Throwable $e) {
+            Log::warning('Status maintenance windows could not be read.', ['exception' => $e::class]);
+
+            return [];
+        }
+    }
+
+    private function maintenancePayload(StatusMaintenance $maintenance): array
+    {
+        return [
+            'id' => $maintenance->id,
+            'title' => $maintenance->title,
+            'components' => array_values((array) $maintenance->components),
+            'starts_at' => $maintenance->starts_at->toIso8601String(),
+            'ends_at' => $maintenance->ends_at->toIso8601String(),
+        ];
+    }
+
+    /**
+     * "Still down" reminders for major outages open longer than alerts.reminder_minutes, repeated
+     * every reminder_minutes until resolved.
+     *
+     * @param  array<string, StatusMaintenance>  $maintenance
+     */
+    private function sendReminders(CarbonInterface $now, array $maintenance): void
+    {
+        $minutes = (int) config('system-status.alerts.reminder_minutes');
+        if ($minutes <= 0) {
+            return;
+        }
+
+        $due = $now->copy()->subMinutes($minutes);
+
+        try {
+            StatusIncident::query()->open()
+                ->where('severity', ComponentStatus::MajorOutage->value)
+                ->where('started_at', '<=', $due)
+                ->where(fn ($query) => $query->whereNull('reminded_at')->orWhere('reminded_at', '<=', $due))
+                ->get()
+                ->each(function (StatusIncident $incident) use ($now, $maintenance) {
+                    $incident->update(['reminded_at' => $now]);
+
+                    if (isset($maintenance[$incident->component])) {
+                        return;
+                    }
+
+                    $duration = StatusDuration::format((int) $incident->started_at->diffInMinutes($now));
+                    $what = $incident->title ?: $incident->message;
+                    $this->alerter->send(trim("🔴 Still down: {$this->registry->label($incident->component, 'en')} for {$duration}. ".($what ?? '')));
+                });
+        } catch (Throwable $e) {
+            Log::warning('Status reminders could not be sent.', ['exception' => $e::class]);
+        }
+    }
+
+    private function safely(callable $callback): void
+    {
+        try {
+            $callback();
+        } catch (Throwable $e) {
+            Log::warning('A System Status listener failed.', ['exception' => $e::class]);
+        }
+    }
+
+    /**
      * Lets the application react to a confirmed change (ComponentStatusChanged). A failing
      * listener never stops the status run.
      */
@@ -344,6 +685,15 @@ class StatusService
         } catch (Throwable $e) {
             Log::warning('A ComponentStatusChanged listener failed.', ['exception' => $e::class]);
         }
+
+        $this->alerter->event('component.status_changed', [
+            'component' => $component,
+            'label' => $this->registry->label($component, 'en'),
+            'previous' => $previous->value,
+            'current' => $current->value,
+            'message' => $message,
+            'changed_at' => $now->toIso8601String(),
+        ]);
     }
 
     private function recordIncident(
@@ -353,16 +703,26 @@ class StatusService
         ?string $message,
         CarbonInterface $now,
     ): void {
-        $open = StatusIncident::query()->open()->where('component', $component)->latest('started_at')->first();
+        $open = StatusIncident::query()->open()->automatic()->where('component', $component)->latest('started_at')->first();
+        $manual = StatusIncident::query()->open()->manual()->where('component', $component)->get()
+            ->max(fn (StatusIncident $incident) => $incident->severity->severity());
         $name = $this->registry->label($component, 'en');
 
         if ($current === ComponentStatus::Operational) {
             if ($open) {
                 $open->update(['resolved_at' => $now]);
-                $minutes = max(1, (int) $open->started_at->diffInMinutes($now));
-                $this->alert("✅ {$name} recovered after {$minutes} min.");
+                $duration = StatusDuration::format((int) $open->started_at->diffInMinutes($now));
+                $text = "✅ {$name} recovered after {$duration}.";
+
+                // Its outage was reported as part of the dependency's: no separate recovery alert.
+                $open->affected_by ? Log::info('[system-status] '.$text) : $this->alerter->change($component, $text, $name, true);
             }
 
+            return;
+        }
+
+        // People already know about it: a manual incident at this severity or worse is open.
+        if (! $open && $manual !== null && $current->severity() <= $manual) {
             return;
         }
 
@@ -376,12 +736,18 @@ class StatusService
                 'severity' => $current,
                 'message' => $message,
                 'started_at' => $now,
+                'affected_by' => $this->affectedBy[$component] ?? null,
             ]);
         }
 
         $icon = $current === ComponentStatus::MajorOutage ? '🔴' : '🟠';
-        $label = $current === ComponentStatus::MajorOutage ? 'major outage' : 'degraded';
-        $this->alert(trim("{$icon} {$name}: {$label}. ".($message ?? '')));
+        $label = $this->statusWords($current);
+        $this->alerter->change($component, trim("{$icon} {$name}: {$label}. ".($message ?? '')), $name);
+    }
+
+    private function statusWords(ComponentStatus $status): string
+    {
+        return $status === ComponentStatus::MajorOutage ? 'major outage' : str_replace('_', ' ', $status->value);
     }
 
     /**
@@ -415,6 +781,7 @@ class StatusService
             'runs' => $gapMinutes,
             'degraded_runs' => 0,
             'outage_runs' => $gapMinutes,
+            'maintenance_runs' => 0,
         ]]);
 
         $this->alert("⚠️ Scheduler: no status checks ran from {$lastRun->format('Y-m-d H:i')} to {$now->format('H:i')} ({$gapMinutes} min). Running again now.");
@@ -428,6 +795,7 @@ class StatusService
             'runs' => 1,
             'degraded_runs' => $status === ComponentStatus::Degraded ? 1 : 0,
             'outage_runs' => $status === ComponentStatus::MajorOutage ? 1 : 0,
+            'maintenance_runs' => $status === ComponentStatus::Maintenance ? 1 : 0,
         ];
     }
 
@@ -440,36 +808,26 @@ class StatusService
         DB::table('status_daily')->upsert(
             $rows,
             ['component', 'day'],
-            StatusSql::incrementOnConflict('status_daily', ['runs', 'degraded_runs', 'outage_runs']),
+            StatusSql::incrementOnConflict('status_daily', ['runs', 'degraded_runs', 'outage_runs', 'maintenance_runs']),
+        );
+
+        $monthly = array_map(function (array $row) {
+            $row['month'] = substr($row['day'], 0, 7);
+            unset($row['day']);
+
+            return $row;
+        }, $rows);
+
+        DB::table('status_monthly')->upsert(
+            $monthly,
+            ['component', 'month'],
+            StatusSql::incrementOnConflict('status_monthly', ['runs', 'degraded_runs', 'outage_runs', 'maintenance_runs']),
         );
     }
 
-    /**
-     * Sends a plain-text alert to the Telegram chat in system-status.alerts.telegram_chat_id.
-     * Nothing is sent in `local`, while the bot or chat is not configured, or without the
-     * laravel-notification-channels/telegram package; the alert is logged instead.
-     */
     private function alert(string $text): void
     {
-        $chatId = config('system-status.alerts.telegram_chat_id');
-
-        if (! config('system-status.alerts.enabled', true)
-            || app()->environment('local')
-            || blank($chatId)
-            || blank(config('services.telegram-bot-api.token'))
-            || ! class_exists(TelegramMessage::class)) {
-            Log::info('[system-status] '.$text);
-
-            return;
-        }
-
-        try {
-            $prefix = (string) config('system-status.alerts.prefix', '['.config('app.name').' status]');
-
-            Notification::route('telegram', $chatId)->notifyNow(new StatusAlertNotification(trim($prefix.' '.$text)));
-        } catch (Throwable $e) {
-            Log::warning('System status alert could not be sent.', ['exception' => $e::class]);
-        }
+        $this->alerter->send($text);
     }
 
     /**

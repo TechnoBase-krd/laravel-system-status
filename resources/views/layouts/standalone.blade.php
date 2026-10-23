@@ -1,8 +1,8 @@
 {{--
     The package's own full page, used when `system-status.layout` is 'standalone' or null, or
-    when the configured layout view does not exist. It loads what the page needs (Bootstrap 4,
-    jQuery, Font Awesome) from `system-status.standalone.css` / `.js`, so any Laravel
-    application can show the page without a backoffice layout.
+    when the configured layout view does not exist. It loads what the page needs (Font Awesome)
+    from `system-status.standalone.css` / `.js`, so any Laravel application can show the page
+    without a backoffice layout.
 
     The top bar mirrors the page's overall status (#sstHero data-level and title) in a live pill
     with a pulsing dot and a heartbeat line. Animations use only transform and opacity, and the
@@ -28,8 +28,13 @@
     @endforeach
 
     <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+
         body.sst-standalone {
             margin: 0;
+            line-height: 1.5;
             min-height: 100vh;
             background:
                 radial-gradient(1200px 400px at 50% -200px, rgb(99 102 241 / .08), transparent 70%),
@@ -53,6 +58,7 @@
         .sst-bar[data-level="degraded"] { --bar-tone: #f59e0b; }
         .sst-bar[data-level="partial"] { --bar-tone: #f97316; }
         .sst-bar[data-level="major"] { --bar-tone: #dc2626; }
+        .sst-bar[data-level="maintenance"] { --bar-tone: #2563eb; }
 
         /* A thin line in the status colour under the bar. */
         .sst-bar::after {
@@ -242,11 +248,6 @@
             padding: 1.5rem 1rem 3rem;
         }
 
-        [dir="rtl"] .sst-standalone .close {
-            float: left;
-            margin: -1rem auto -1rem -1rem;
-        }
-
         @keyframes sst-ping {
             0% { transform: scale(1); opacity: .6; }
             80%, 100% { transform: scale(2.8); opacity: 0; }
@@ -342,7 +343,12 @@
             var heroTitle = document.getElementById('sstHeroTitle');
             var barText = document.getElementById('sstBarText');
 
+            // Pages without a live status (the monthly report) hide the status pill.
             if (!hero || !heroTitle) {
+                var live = document.querySelector('.sst-live');
+                if (live) {
+                    live.style.display = 'none';
+                }
                 return;
             }
 

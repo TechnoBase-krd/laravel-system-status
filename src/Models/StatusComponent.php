@@ -8,7 +8,7 @@ use Technobase\SystemStatus\Enums\ComponentStatus;
 class StatusComponent extends Model
 {
     protected $fillable = [
-        'component', 'status', 'candidate_status', 'candidate_runs', 'message', 'configured', 'changed_at', 'checked_at',
+        'component', 'status', 'candidate_status', 'candidate_runs', 'message', 'configured', 'changed_at', 'checked_at', 'affected_by',
     ];
 
     protected $casts = [

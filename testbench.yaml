@@ -1,0 +1,35 @@
+# Local demo of the status page: composer serve (vendor/bin/testbench serve), then open
+# http://127.0.0.1:8000/demo-login. Sample data comes from workbench/database/seeders.
+laravel: '@testbench'
+
+providers:
+  - Spatie\Health\HealthServiceProvider
+  - Technobase\SystemStatus\SystemStatusServiceProvider
+  - Workbench\App\Providers\WorkbenchServiceProvider
+
+seeders:
+  - Workbench\Database\Seeders\DatabaseSeeder
+
+env:
+  - APP_NAME="Demo Shop"
+  - APP_ENV=local
+  - APP_DEBUG=true
+  - DB_CONNECTION=sqlite
+  - SESSION_DRIVER=file
+  - CACHE_STORE=file
+
+workbench:
+  start: /demo-login
+  install: true
+  health: false
+  discovers:
+    web: false
+    api: false
+    commands: false
+    components: false
+    factories: false
+    views: false
+  build:
+    - create-sqlite-db
+    - db-wipe
+    - migrate-fresh

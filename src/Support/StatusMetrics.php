@@ -28,7 +28,9 @@ class StatusMetrics
             $key = self::KEY_PREFIX.(intdiv(time(), 60) * 60);
             $field = $component.self::SEPARATOR.$route.self::SEPARATOR;
 
-            Redis::connection(config('system-status.redis_connection'))->pipeline(function ($pipe) use ($key, $field, $failed, $durationMs, $slow) {
+            $bucket = $route !== self::SIGNAL_ROUTE ? 'h'.LatencyHistogram::index($durationMs) : null;
+
+            Redis::connection(config('system-status.redis_connection'))->pipeline(function ($pipe) use ($key, $field, $failed, $durationMs, $slow, $bucket) {
                 $pipe->hincrby($key, $field.'r', 1);
                 if ($failed) {
                     $pipe->hincrby($key, $field.'e', 1);
@@ -38,6 +40,9 @@ class StatusMetrics
                 }
                 if ($durationMs > 0) {
                     $pipe->hincrby($key, $field.'t', $durationMs);
+                }
+                if ($bucket !== null) {
+                    $pipe->hincrby($key, $field.$bucket, 1);
                 }
                 $pipe->expire($key, self::KEEP_MINUTES * 60 * 2);
             });
@@ -89,13 +94,15 @@ class StatusMetrics
                     'errors' => 0,
                     'slow' => 0,
                     'total_ms' => 0,
+                    ...array_fill_keys(LatencyHistogram::COLUMNS, 0),
                 ];
 
-                $column = match ($metric) {
-                    'r' => 'requests',
-                    'e' => 'errors',
-                    's' => 'slow',
-                    't' => 'total_ms',
+                $column = match (true) {
+                    $metric === 'r' => 'requests',
+                    $metric === 'e' => 'errors',
+                    $metric === 's' => 'slow',
+                    $metric === 't' => 'total_ms',
+                    (bool) preg_match('/^h([0-7])$/', $metric, $m) => LatencyHistogram::COLUMNS[(int) $m[1]],
                     default => null,
                 };
 
@@ -109,7 +116,7 @@ class StatusMetrics
             DB::table('status_route_buckets')->upsert(
                 $chunk,
                 ['component', 'route', 'bucket_at'],
-                StatusSql::incrementOnConflict('status_route_buckets', ['requests', 'errors', 'slow', 'total_ms']),
+                StatusSql::incrementOnConflict('status_route_buckets', ['requests', 'errors', 'slow', 'total_ms', ...LatencyHistogram::COLUMNS]),
             );
         }
 

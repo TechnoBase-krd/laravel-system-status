@@ -15,20 +15,30 @@ namespace `Technobase\SystemStatus`. Public on Packagist (MIT); used by Khatun-E
 
 | Path | Holds |
 | --- | --- |
-| `src/SystemStatusServiceProvider.php` | config merge, routes, views, translations, migrations, commands, traffic middleware, schedule, publish tags |
-| `src/Services/StatusService.php` | one `status:check` run: probes, traffic, signals, confirmation, incidents, alerts, event, daily rollup |
-| `src/Support/` | `StatusRegistry` (config + labels), `RouteComponentResolver`, `StatusMetrics` (Redis counters), `StatusSignal`, `StatusTimeline` (1h / 24h / 7d) |
-| `src/Probes/` | `Probe`, `ProbeResult` and the generic probes |
-| `src/Actions/` | data for the page (`GetStatusSummaryAction`) and the detail popup (`GetStatusComponentAction`) |
-| `src/Http/` | controller, `AuthorizeSystemStatus`, `RecordRouteHealth`, `StatusSummaryRequest` |
-| `src/Events/ComponentStatusChanged.php` | fired on every confirmed change |
+| `src/SystemStatusServiceProvider.php` | config merge, routes, views, translations, migrations, commands, traffic middleware, schedule (incl. the monthly report), publish tags, the optional Pulse card |
+| `src/Services/StatusService.php` | one `status:check` run: probes, traffic, latency, signals, manual incidents, maintenance windows, dependencies, confirmation, incidents, alerts, reminders, events, daily and monthly rollup |
+| `src/Services/IncidentService.php` | manual incidents, timeline updates, postmortems, `IncidentUpdated` |
+| `src/Services/MaintenanceService.php` | schedules and ends maintenance windows (page and `status:maintenance`) |
+| `src/Support/` | `StatusRegistry` (config, labels, per-component `threshold()`), `RouteComponentResolver`, `StatusMetrics` (Redis counters), `StatusSignal`, `StatusTimeline` (1h / 24h / 7d), `StatusSql` (driver-specific SQL), `StatusAlerter` (channels, flap protection, folded alerts, webhooks), `LatencyHistogram` (`le_*` buckets, p50 / p95), `StatusDuration` ("1 h 5 min") |
+| `src/Probes/` | `Probe`, `ProbeResult` and the generic probes (Spatie, HTTP, queue heartbeat, CDN, Telegram, TLS certificate, disk space, failed jobs, queue size, queue wait, DNS, TCP port, callback) |
+| `src/Actions/` | data for the page (`GetStatusSummaryAction`), the detail popup (`GetStatusComponentAction`) and the monthly SLA report (`GetStatusReportAction`: CSV, HTML, PDF) |
+| `src/Console/` | `status:check`, `status:prune`, `status:routes`, `status:maintenance`, `status:test-alert`, `status:report`, `status:doctor` |
+| `src/Http/` | controllers (page, management, report), `AuthorizeSystemStatus`, `AuthorizeSystemStatusManagement` (`access.manage_gate`), `RecordRouteHealth`, form requests |
+| `src/Enums/` | `ComponentStatus` (incl. `Maintenance`), `IncidentState` |
+| `src/Events/` | `ComponentStatusChanged` (every confirmed change), `IncidentUpdated`, `MaintenanceStarted`, `MaintenanceEnded` |
+| `src/Models/` | `StatusComponent`, `StatusCheck`, `StatusIncident`, `StatusIncidentUpdate`, `StatusMaintenance` |
+| `src/Pulse/SystemStatusCard.php` | Laravel Pulse card, registered only when Pulse and Livewire are installed |
 | `config/system-status.php` | every option, documented inline |
-| `database/migrations/` | the five `status_*` tables |
-| `resources/views/index.blade.php` | the page (jQuery, Bootstrap modal, Font Awesome); extends the `$layout` the controller resolves |
+| `database/migrations/` | six migrations: the original `status_*` tables plus maintenance windows, incident updates, latency columns, `affected_by`, `status_monthly` |
+| `resources/views/index.blade.php` + `partials/` | the page (plain JS, Font Awesome; `partials/detail` dialog, `partials/panels` slide-over forms and ⋯ menu, `partials/script`, `partials/tailwind` = CDN Tailwind with `tw:` prefix, important utilities and no preflight); extends the `$layout` the controller resolves. Tailwind classes always use the `tw:` prefix; never add jQuery or Bootstrap |
 | `resources/views/layouts/standalone.blade.php` | the package's own full HTML page, used for `layout` = `'standalone'` / `null` or a missing layout view |
+| `resources/views/report.blade.php` | the monthly uptime report (page, email attachment, PDF source) |
+| `resources/views/pulse/` | the Pulse card view |
 | `resources/css/system-status.css` | page styles, `--sst-*` variables on `.sst` |
 | `resources/claude/SKILL.md` | the skill applications publish with `--tag=system-status-skill` |
 | `lang/{en,ar,ku}/status.php` | all page text and generic component labels |
+| `tests/` | Pest suite on Orchestra Testbench: `Feature/`, `Unit/`, `Fixtures/`, `TestCase.php` (DB driver from env or `tests/.env.testing`), `helpers.php` |
+| `.github/workflows/tests.yml` | CI: `composer lint` and the test matrix |
 | `docs/screenshots/` | README images |
 
 ## Rules
@@ -50,23 +60,35 @@ namespace `Technobase\SystemStatus`. Public on Packagist (MIT); used by Khatun-E
 - **No secrets in messages.** Probe messages use the exception class, never the raw message.
 - **Translations.** Every new key in `en`, `ar` and `ku`. Component labels fall back to the key
   in words when missing.
-- **Probes are read-only and free.**
+- **Probes are read-only and free.** A probe's constructor argument names are its `with` keys,
+  so renaming one is a breaking change.
+- **New enum cases break exhaustive `match`es in applications.** Prefer new fields over new
+  `ComponentStatus` cases, and call them out in the changelog's upgrade notes.
+- **Alerts go through `StatusAlerter`**, never straight to a channel, so `alerts.enabled`, the
+  `local` check, flap protection and dependency folding apply everywhere.
 
 ## Checking a change
 
-There are no automated tests yet. Before a release:
+Every change comes with tests. Before pushing:
 
-1. `php -l` on changed files and `vendor/bin/pint --test --preset laravel src config routes lang database`
-   (Pint from either application).
-2. Install the working copy into an application with a `path` repository
-   (`{"type": "path", "url": "../laravel-system-status", "options": {"symlink": true}}`),
-   run `composer dump-autoload`, then: `php artisan route:list --path=system-status`,
-   `php artisan status:routes --fallback`, `php artisan status:check`, and open the page as a
-   Super Admin, once with the application's layout and once with `'layout' => 'standalone'`.
-   Switch the application back to the Packagist version afterwards.
-3. Screenshots: a throwaway Laravel app with the package, a Bootstrap 4 + jQuery + Font Awesome
-   layout and sample rows in the `status_*` tables; capture with headless Chrome at 1440 px
-   (desktop) and 390 px (phone).
+1. `composer test` (Pest) and `composer lint` (Pint, laravel preset, on `src config routes lang
+   database tests`; `composer format` fixes it). Tests use in-memory SQLite by default; to run
+   them on MySQL or PostgreSQL, put `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`,
+   `DB_USERNAME` and `DB_PASSWORD` in the git-ignored `tests/.env.testing`. Tests that need
+   Redis (`127.0.0.1:6379`, database 15) skip themselves when it is not running.
+2. CI (`.github/workflows/tests.yml`) runs `composer lint` and the suite on PHP 8.3 / 8.4 ×
+   Laravel 12 / 13 × SQLite / MySQL 8 / PostgreSQL 16 for every pull request and push to
+   `main`. Driver-specific SQL must pass on all three.
+3. For page or front-end changes, install the working copy into an application with a `path`
+   repository (`{"type": "path", "url": "../laravel-system-status", "options": {"symlink": true}}`),
+   run `composer dump-autoload` and `php artisan migrate`, then: `php artisan status:doctor`,
+   `php artisan route:list --path=system-status`, `php artisan status:routes --fallback`,
+   `php artisan status:check`, and open the page as a Super Admin, once with the application's
+   layout and once with `'layout' => 'standalone'`. Switch the application back to the
+   Packagist version afterwards.
+4. Screenshots: `composer serve` (Testbench demo in `workbench/` with sample data), open
+   `/demo-login` (`?locale=ar` for RTL) and capture with headless Chrome at 1440 px (desktop),
+   820 px (tablet) and 390 px (phone).
 
 ## Releasing
 

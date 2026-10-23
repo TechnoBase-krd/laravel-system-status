@@ -5,9 +5,15 @@ namespace Technobase\SystemStatus;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Pulse\Livewire\Card;
+use Livewire\Livewire;
+use Technobase\SystemStatus\Console\DoctorCommand;
 use Technobase\SystemStatus\Console\ListStatusRoutesCommand;
+use Technobase\SystemStatus\Console\MaintenanceCommand;
 use Technobase\SystemStatus\Console\PruneStatusCommand;
+use Technobase\SystemStatus\Console\ReportCommand;
 use Technobase\SystemStatus\Console\RunStatusChecksCommand;
+use Technobase\SystemStatus\Console\TestAlertCommand;
 use Technobase\SystemStatus\Http\Middleware\RecordRouteHealth;
 
 class SystemStatusServiceProvider extends ServiceProvider
@@ -34,6 +40,10 @@ class SystemStatusServiceProvider extends ServiceProvider
                 RunStatusChecksCommand::class,
                 PruneStatusCommand::class,
                 ListStatusRoutesCommand::class,
+                MaintenanceCommand::class,
+                TestAlertCommand::class,
+                ReportCommand::class,
+                DoctorCommand::class,
             ]);
 
             $this->publishes([
@@ -54,11 +64,20 @@ class SystemStatusServiceProvider extends ServiceProvider
             ], 'system-status-skill');
         }
 
+        // Optional Laravel Pulse card: <livewire:system-status.pulse cols="4" />
+        if (class_exists(Card::class) && class_exists(Livewire::class)) {
+            Livewire::component('system-status.pulse', Pulse\SystemStatusCard::class);
+        }
+
         if (config('system-status.schedule', true)) {
             $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
                 // The overlap lock expires after 5 minutes so a killed run cannot stop the checks.
                 $schedule->command('status:check')->everyMinute()->withoutOverlapping(5)->runInBackground();
                 $schedule->command('status:prune')->dailyAt('03:30')->withoutOverlapping();
+
+                if (array_filter((array) config('system-status.reports.mail_to', []))) {
+                    $schedule->command('status:report --previous --send')->monthlyOn(1, '08:00');
+                }
             });
         }
     }

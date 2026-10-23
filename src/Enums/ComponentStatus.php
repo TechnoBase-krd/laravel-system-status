@@ -7,6 +7,8 @@ enum ComponentStatus: string
     case Operational = 'operational';
     case Degraded = 'degraded';
     case MajorOutage = 'major_outage';
+    // Planned work (a maintenance window). Never the worst status, never an incident or alert.
+    case Maintenance = 'maintenance';
 
     public static function values(): array
     {
@@ -21,10 +23,15 @@ enum ComponentStatus: string
     public function severity(): int
     {
         return match ($this) {
-            self::Operational => 0,
+            self::Operational, self::Maintenance => 0,
             self::Degraded => 1,
             self::MajorOutage => 2,
         };
+    }
+
+    public function isProblem(): bool
+    {
+        return $this->severity() > 0;
     }
 
     /**

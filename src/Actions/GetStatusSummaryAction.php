@@ -6,6 +6,7 @@ use Illuminate\Support\Carbon;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Models\StatusIncident;
+use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Services\StatusService;
 use Technobase\SystemStatus\Support\StatusRegistry;
 use Technobase\SystemStatus\Support\StatusTimeline;
@@ -27,11 +28,13 @@ class GetStatusSummaryAction
         private readonly StatusRegistry $registry,
         private readonly StatusService $service,
         private readonly StatusTimeline $timeline,
+        private readonly GetStatusReportAction $report,
     ) {}
 
     public function execute(string $range = '90d'): array
     {
         $states = StatusComponent::query()->get()->keyBy('component');
+        $maintenance = StatusMaintenance::activeByComponent();
         $history = $range === '90d' ? $this->service->dailyHistory(self::HISTORY_DAYS) : collect();
         $timeline = $range === '90d' ? [] : $this->timeline->build($range, array_keys($this->registry->components()));
 
@@ -59,6 +62,12 @@ class GetStatusSummaryAction
                         : __('system-status::status.status_checks_never_ran');
                 }
 
+                // A window that started after the last run already shows.
+                if (isset($maintenance[$component]) && $status !== ComponentStatus::Maintenance && ! $status->isProblem()) {
+                    $status = ComponentStatus::Maintenance;
+                    $message = $maintenance[$component]->title;
+                }
+
                 $configured = $state?->configured ?? true;
                 if ($configured) {
                     $statuses[$component] = $status;
@@ -76,7 +85,11 @@ class GetStatusSummaryAction
                     'configured' => $configured,
                     'message' => $message,
                     'changed_at' => $state?->changed_at?->format('Y-m-d H:i'),
+                    'affected_by' => $state?->affected_by,
+                    'affected_by_label' => $state?->affected_by ? $this->registry->label($state->affected_by) : null,
                     'uptime' => $uptime,
+                    'sla_target' => $target = $this->report->target($component),
+                    'sla_missed' => $range === '90d' && $target !== null && $uptime !== null && $uptime < $target,
                     'days' => $days,
                 ];
             }
@@ -100,6 +113,8 @@ class GetStatusSummaryAction
             ],
             'groups' => $groups,
             'incidents' => $this->incidents(),
+            'maintenances' => $this->maintenances(),
+            'report_url' => route('system_status.report', ['month' => now()->format('Y-m'), 'format' => 'html']),
         ];
     }
 
@@ -112,6 +127,7 @@ class GetStatusSummaryAction
         $days = [];
         $runs = 0;
         $outageRuns = 0;
+        $maintenanceRuns = 0;
 
         for ($i = self::HISTORY_DAYS - 1; $i >= 0; $i--) {
             $date = now()->subDays($i)->toDateString();
@@ -123,8 +139,12 @@ class GetStatusSummaryAction
                 continue;
             }
 
+            // Maintenance time does not count against uptime.
+            $dayMaintenance = (int) ($row->maintenance_runs ?? 0);
+            $counted = (int) $row->runs - $dayMaintenance;
             $runs += (int) $row->runs;
             $outageRuns += (int) $row->outage_runs;
+            $maintenanceRuns += $dayMaintenance;
 
             $days[] = [
                 'label' => $date,
@@ -132,17 +152,21 @@ class GetStatusSummaryAction
                     (int) $row->outage_runs >= 30 => 'major',
                     (int) $row->outage_runs > 0 => 'partial',
                     (int) $row->degraded_runs > 0 => 'degraded',
+                    $dayMaintenance > 0 => 'maintenance',
                     default => 'ok',
                 },
-                'uptime' => round(((int) $row->runs - (int) $row->outage_runs) / (int) $row->runs * 100, 2),
+                'uptime' => $counted > 0 ? round(($counted - (int) $row->outage_runs) / $counted * 100, 2) : 100.0,
                 'outage_minutes' => (int) $row->outage_runs,
                 'degraded_minutes' => (int) $row->degraded_runs,
+                'maintenance_minutes' => $dayMaintenance,
                 'requests' => null,
                 'errors' => null,
             ];
         }
 
-        return [$days, $runs > 0 ? round(($runs - $outageRuns) / $runs * 100, 2) : null];
+        $counted = $runs - $maintenanceRuns;
+
+        return [$days, $runs > 0 ? ($counted > 0 ? round(($counted - $outageRuns) / $counted * 100, 2) : 100.0) : null];
     }
 
     private function overall(array $statuses): array
@@ -154,6 +178,7 @@ class GetStatusSummaryAction
             in_array('database', $outages, true) || count($outages) >= 3 => 'major',
             $outages !== [] => 'partial',
             $worst === ComponentStatus::Degraded => 'degraded',
+            in_array(ComponentStatus::Maintenance, $statuses, true) => 'maintenance',
             default => 'operational',
         };
 
@@ -166,6 +191,7 @@ class GetStatusSummaryAction
     private function incidents(): array
     {
         return StatusIncident::query()
+            ->with('updates')
             ->where(fn ($query) => $query->whereNull('resolved_at')
                 ->orWhere('started_at', '>=', now()->subDays(self::INCIDENT_DAYS)))
             ->orderByRaw('resolved_at IS NOT NULL')
@@ -176,15 +202,60 @@ class GetStatusSummaryAction
             ->all();
     }
 
+    /**
+     * Active and upcoming maintenance windows.
+     */
+    private function maintenances(): array
+    {
+        return StatusMaintenance::query()
+            ->where('ends_at', '>', now())
+            ->orderBy('starts_at')
+            ->limit(20)
+            ->get()
+            ->map(fn (StatusMaintenance $maintenance) => $this->maintenanceRow($maintenance))
+            ->all();
+    }
+
+    public function maintenanceRow(StatusMaintenance $maintenance): array
+    {
+        return [
+            'id' => $maintenance->id,
+            'title' => $maintenance->title,
+            'message' => $maintenance->message,
+            'components' => array_map(fn (string $component) => [
+                'key' => $component,
+                'label' => $this->registry->label($component),
+            ], array_values((array) $maintenance->components)),
+            'starts_at' => $maintenance->starts_at->format('Y-m-d H:i'),
+            'ends_at' => $maintenance->ends_at->format('Y-m-d H:i'),
+            'active' => $maintenance->isActive(),
+            'created_by' => $maintenance->created_by,
+        ];
+    }
+
     public function incidentRow(StatusIncident $incident): array
     {
         $end = $incident->resolved_at ?? now();
 
         return [
+            'id' => $incident->id,
             'component' => $incident->component,
             'component_label' => $this->registry->label($incident->component),
             'severity' => $incident->severity->value,
             'severity_label' => $incident->severity->label(),
+            'title' => $incident->title,
+            'source' => $incident->source ?? StatusIncident::SOURCE_AUTO,
+            'state' => $incident->state?->value,
+            'state_label' => $incident->state?->label(),
+            'postmortem' => $incident->postmortem,
+            'created_by' => $incident->created_by,
+            'updates' => $incident->relationLoaded('updates') ? $incident->updates->map(fn ($update) => [
+                'state' => $update->state->value,
+                'state_label' => $update->state->label(),
+                'message' => $update->message,
+                'author' => $update->author,
+                'at' => $update->created_at?->format('Y-m-d H:i'),
+            ])->values()->all() : [],
             'message' => $incident->message,
             'started_at' => $incident->started_at->format('Y-m-d H:i'),
             'resolved_at' => $incident->resolved_at?->format('Y-m-d H:i'),

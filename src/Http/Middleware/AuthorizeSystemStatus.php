@@ -18,25 +18,27 @@ class AuthorizeSystemStatus
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $user = $request->user();
+        abort_unless(self::allows($request->user()), 403);
 
+        return $next($request);
+    }
+
+    /**
+     * Whether this user may see the status (also used by the Pulse card).
+     */
+    public static function allows($user): bool
+    {
         if (! $user) {
-            abort(403);
+            return false;
         }
 
         // A Gate ability, when set, replaces the role check.
         if (filled($gate = config('system-status.access.gate'))) {
-            abort_unless(Gate::forUser($user)->allows($gate), 403);
-
-            return $next($request);
+            return Gate::forUser($user)->allows($gate);
         }
 
         $roles = (array) config('system-status.access.roles', ['Super Admin']);
 
-        if ($roles === [] || ! method_exists($user, 'hasRole') || ! $user->hasRole($roles)) {
-            abort(403);
-        }
-
-        return $next($request);
+        return $roles !== [] && method_exists($user, 'hasRole') && $user->hasRole($roles);
     }
 }

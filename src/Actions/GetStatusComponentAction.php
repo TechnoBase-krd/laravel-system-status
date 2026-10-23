@@ -7,6 +7,7 @@ use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Models\StatusCheck;
 use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Models\StatusIncident;
+use Technobase\SystemStatus\Support\LatencyHistogram;
 use Technobase\SystemStatus\Support\StatusMetrics;
 use Technobase\SystemStatus\Support\StatusRegistry;
 use Technobase\SystemStatus\Support\StatusSignal;
@@ -34,7 +35,7 @@ class GetStatusComponentAction
             ->where('route', '!=', StatusMetrics::SIGNAL_ROUTE)
             ->where('bucket_at', '>=', $since)
             ->selectRaw(StatusSql::hour('bucket_at').' AS hour')
-            ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors')
+            ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors, '.LatencyHistogram::sumSelect())
             ->groupByRaw('1')
             ->orderByRaw('1')
             ->get()
@@ -42,13 +43,22 @@ class GetStatusComponentAction
 
         // Every one of the last 24 hours, so hours without traffic show as gaps in the chart.
         $hours = [];
+        $latency = [];
         for ($i = 23; $i >= 0; $i--) {
             $hour = now()->subHours($i)->format('Y-m-d H:00');
+            $row = $hourly->get($hour);
+            $histogram = $row ? LatencyHistogram::fromRow($row) : [];
             $hours[] = [
                 'hour' => $hour,
-                'requests' => (int) ($hourly->get($hour)->requests ?? 0),
-                'errors' => (int) ($hourly->get($hour)->errors ?? 0),
+                'requests' => (int) ($row->requests ?? 0),
+                'errors' => (int) ($row->errors ?? 0),
+                'p50' => $row ? LatencyHistogram::percentile($histogram, 50) : null,
+                'p95' => $row ? LatencyHistogram::percentile($histogram, 95) : null,
             ];
+
+            foreach ($histogram as $index => $count) {
+                $latency[$index] = ($latency[$index] ?? 0) + $count;
+            }
         }
 
         $routes = DB::table('status_route_buckets')
@@ -56,7 +66,7 @@ class GetStatusComponentAction
             ->where('route', '!=', StatusMetrics::SIGNAL_ROUTE)
             ->where('bucket_at', '>=', $since)
             ->select('route')
-            ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors, SUM(slow) AS slow, SUM(total_ms) AS total_ms')
+            ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors, SUM(slow) AS slow, SUM(total_ms) AS total_ms, '.LatencyHistogram::sumSelect())
             ->groupBy('route')
             ->orderByRaw('SUM(errors) DESC, SUM(total_ms) / NULLIF(SUM(requests), 0) DESC')
             ->limit(20)
@@ -68,6 +78,7 @@ class GetStatusComponentAction
                 'error_rate' => (int) $row->requests > 0 ? round($row->errors / $row->requests * 100, 1) : 0,
                 'slow' => (int) $row->slow,
                 'avg_ms' => (int) $row->requests > 0 ? (int) round($row->total_ms / $row->requests) : 0,
+                'p95_ms' => LatencyHistogram::percentile(LatencyHistogram::fromRow($row), 95),
             ])
             ->all();
 
@@ -96,6 +107,7 @@ class GetStatusComponentAction
             ->all();
 
         $incidents = StatusIncident::query()
+            ->with('updates')
             ->where('component', $component)
             ->latest('started_at')
             ->limit(10)
@@ -110,6 +122,11 @@ class GetStatusComponentAction
             'status_label' => $status->label(),
             'message' => $state?->message,
             'hourly' => $hours,
+            'latency' => [
+                'p50' => LatencyHistogram::percentile($latency, 50),
+                'p95' => LatencyHistogram::percentile($latency, 95),
+                'degraded_p95_ms' => $this->registry->threshold($component, 'latency_degraded_p95_ms'),
+            ],
             'routes' => $routes,
             'signal' => [
                 'calls' => (int) ($signal->calls ?? 0),
