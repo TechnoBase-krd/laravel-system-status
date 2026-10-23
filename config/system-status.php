@@ -149,6 +149,19 @@ return [
         'reminder_minutes' => env('SYSTEM_STATUS_REMINDER_MINUTES'),
     ],
 
+    // Monthly uptime targets. A component's own 'sla' => 99.9 wins; null = no target. The 90-day
+    // view marks components below target, and `php artisan status:report` lists them.
+    'sla' => [
+        'default_target' => null,
+    ],
+
+    // Email last month's uptime report on the 1st of each month (08:00) to these addresses.
+    'reports' => [
+        'mail_to' => array_filter(explode(',', (string) env('SYSTEM_STATUS_REPORT_MAIL_TO', ''))),
+        // csv, html or pdf (pdf needs barryvdh/laravel-dompdf).
+        'format' => 'csv',
+    ],
+
     'retention_days' => [
         'checks' => 7,
         'route_buckets' => 7,

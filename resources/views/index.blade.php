@@ -47,6 +47,10 @@
                         <span>@lang('system-status::status.status_schedule_maintenance')</span>
                     </button>
                 @endif
+                <a class="btn sst-refresh" href="{{ route('system_status.report', ['month' => now()->format('Y-m'), 'format' => 'html']) }}">
+                    <i class="fas fa-file-alt" aria-hidden="true"></i>
+                    <span>@lang('system-status::status.status_monthly_report')</span>
+                </a>
                 <span class="sst-countdown" id="sstCountdown"></span>
                 <button type="button" class="btn sst-refresh" id="sstRefresh">
                     <i class="fas fa-sync-alt" aria-hidden="true"></i>
@@ -557,6 +561,7 @@
                 affects: @json(__('system-status::status.status_affects', ['components' => ':components'])),
                 by: @json(__('system-status::status.status_by', ['name' => ':name'])),
                 saveFailed: @json(__('system-status::status.status_save_failed')),
+                slaTarget: @json(__('system-status::status.status_sla_target', ['target' => ':target'])),
                 manual: @json(__('system-status::status.status_source_manual')),
                 updateFor: @json(__('system-status::status.status_update_for', ['title' => ':title'])),
                 today: @json(__('system-status::status.status_today')),
@@ -755,7 +760,9 @@
                         const name = setText(node, '.sst-component-name', component.label);
                         name.dataset.component = component.key;
                         setPill(node.querySelector('.sst-pill'), status, component.status_label);
-                        setText(node, '.sst-component-uptime', component.uptime === null ? '' : fill(i18n.uptime, {value: component.uptime}));
+                        const uptime = setText(node, '.sst-component-uptime', component.uptime === null ? '' : fill(i18n.uptime, {value: component.uptime}));
+                        uptime.dataset.slaMissed = component.sla_missed ? '1' : '0';
+                        uptime.title = component.sla_target ? fill(i18n.slaTarget, {target: component.sla_target}) : '';
 
                         const message = setText(node, '.sst-component-message', component.message || '');
                         message.hidden = !component.message;

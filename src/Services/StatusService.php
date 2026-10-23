@@ -741,6 +741,19 @@ class StatusService
             ['component', 'day'],
             StatusSql::incrementOnConflict('status_daily', ['runs', 'degraded_runs', 'outage_runs', 'maintenance_runs']),
         );
+
+        $monthly = array_map(function (array $row) {
+            $row['month'] = substr($row['day'], 0, 7);
+            unset($row['day']);
+
+            return $row;
+        }, $rows);
+
+        DB::table('status_monthly')->upsert(
+            $monthly,
+            ['component', 'month'],
+            StatusSql::incrementOnConflict('status_monthly', ['runs', 'degraded_runs', 'outage_runs', 'maintenance_runs']),
+        );
     }
 
     private function alert(string $text): void

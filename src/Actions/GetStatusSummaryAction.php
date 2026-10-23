@@ -28,6 +28,7 @@ class GetStatusSummaryAction
         private readonly StatusRegistry $registry,
         private readonly StatusService $service,
         private readonly StatusTimeline $timeline,
+        private readonly GetStatusReportAction $report,
     ) {}
 
     public function execute(string $range = '90d'): array
@@ -87,6 +88,8 @@ class GetStatusSummaryAction
                     'affected_by' => $state?->affected_by,
                     'affected_by_label' => $state?->affected_by ? $this->registry->label($state->affected_by) : null,
                     'uptime' => $uptime,
+                    'sla_target' => $target = $this->report->target($component),
+                    'sla_missed' => $range === '90d' && $target !== null && $uptime !== null && $uptime < $target,
                     'days' => $days,
                 ];
             }
@@ -111,6 +114,7 @@ class GetStatusSummaryAction
             'groups' => $groups,
             'incidents' => $this->incidents(),
             'maintenances' => $this->maintenances(),
+            'report_url' => route('system_status.report', ['month' => now()->format('Y-m'), 'format' => 'html']),
         ];
     }
 

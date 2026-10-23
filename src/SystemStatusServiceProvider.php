@@ -8,6 +8,7 @@ use Illuminate\Support\ServiceProvider;
 use Technobase\SystemStatus\Console\ListStatusRoutesCommand;
 use Technobase\SystemStatus\Console\MaintenanceCommand;
 use Technobase\SystemStatus\Console\PruneStatusCommand;
+use Technobase\SystemStatus\Console\ReportCommand;
 use Technobase\SystemStatus\Console\RunStatusChecksCommand;
 use Technobase\SystemStatus\Console\TestAlertCommand;
 use Technobase\SystemStatus\Http\Middleware\RecordRouteHealth;
@@ -38,6 +39,7 @@ class SystemStatusServiceProvider extends ServiceProvider
                 ListStatusRoutesCommand::class,
                 MaintenanceCommand::class,
                 TestAlertCommand::class,
+                ReportCommand::class,
             ]);
 
             $this->publishes([
@@ -63,6 +65,10 @@ class SystemStatusServiceProvider extends ServiceProvider
                 // The overlap lock expires after 5 minutes so a killed run cannot stop the checks.
                 $schedule->command('status:check')->everyMinute()->withoutOverlapping(5)->runInBackground();
                 $schedule->command('status:prune')->dailyAt('03:30')->withoutOverlapping();
+
+                if (array_filter((array) config('system-status.reports.mail_to', []))) {
+                    $schedule->command('status:report --previous --send')->monthlyOn(1, '08:00');
+                }
             });
         }
     }

@@ -32,7 +32,9 @@
     },
     "suggest": {
         "laravel-notification-channels/telegram": "Sends status changes to a Telegram chat.",
-        "spatie/laravel-permission": "Provides hasRole() for the page's role check."
+        "spatie/laravel-permission": "Provides hasRole() for the page's role check.",
+        "barryvdh/laravel-dompdf": "Adds PDF export to the monthly uptime report.",
+        "laravel/pulse": "Shows a System Status card on the Pulse dashboard."
     },
     "autoload": {
         "psr-4": {

@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Technobase\SystemStatus\Http\Controllers\StatusManagementController;
+use Technobase\SystemStatus\Http\Controllers\StatusReportController;
 use Technobase\SystemStatus\Http\Controllers\SystemStatusController;
 use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatus;
 use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatusManagement;
@@ -15,6 +16,9 @@ Route::middleware([...(array) config('system-status.middleware', ['web', 'auth']
         Route::get($path.'/components/{component}', [SystemStatusController::class, 'component'])
             ->where('component', '[a-z_]+')
             ->name('system_status.component');
+        Route::get($path.'/reports/{month}.{format}', [StatusReportController::class, 'show'])
+            ->where(['month' => '\d{4}-\d{2}', 'format' => 'html|csv|pdf'])
+            ->name('system_status.report');
 
         // Posting incidents and scheduling maintenance (system-status.access.manage_gate).
         Route::middleware(AuthorizeSystemStatusManagement::class)->group(function () use ($path) {

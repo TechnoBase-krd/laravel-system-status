@@ -686,6 +686,16 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     font-variant-numeric: tabular-nums;
 }
 
+.sst .sst-component-uptime[data-sla-missed="1"] {
+    color: var(--sst-major);
+    font-weight: 700;
+}
+
+.sst .sst-component-uptime[data-sla-missed="1"]::after {
+    content: " ▼";
+    font-size: .7em;
+}
+
 /* ---------- incident timeline ---------- */
 .sst .sst-incident-title {
     margin: .3rem 0 0;
