@@ -16,9 +16,9 @@ use Technobase\SystemStatus\Actions\GetStatusSummaryAction;
 #[Lazy]
 class SystemStatusCard extends Card
 {
-    public function render(GetStatusSummaryAction $summary): View
+    public function render(): View
     {
-        $data = $summary->execute('90d');
+        $data = app(GetStatusSummaryAction::class)->execute('90d');
 
         $problems = collect($data['groups'])
             ->flatMap(fn (array $group) => $group['components'])
