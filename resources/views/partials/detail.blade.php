@@ -15,7 +15,7 @@
             </button>
         </header>
 
-        <div class="tw:overflow-y-auto tw:p-5">
+        <div class="sst-detail-body tw:overflow-y-auto tw:p-5">
             <p class="sst-detail-message" id="sstDetailMessage" hidden></p>
 
             <div class="sst-kpis sst-kpis-compact">

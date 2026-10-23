@@ -327,6 +327,7 @@ All options live in `config/system-status.php`.
 | `standalone.brand` | `TechnoBase` | name in the standalone page's top bar, browser title and description line |
 | `standalone.back_url` | `null` (`/`) | where the back button goes when there is no previous page of the application |
 | `extra_css` | `null` | absolute path of a CSS file added after the package styles |
+| `incidents_per_page` | `10` | incidents in *Past incidents* at first and per *Show more* click (1–100) |
 | `refresh_seconds` | `['1h' => 20, 'default' => 60]` | seconds between automatic refreshes, per range |
 | `record_traffic` | `true` | count every request (global middleware) |
 | `schedule` | `true` | schedule `status:check`, `status:prune` and (with `reports.mail_to`) the monthly `status:report` |

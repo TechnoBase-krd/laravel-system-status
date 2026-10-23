@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Faster status page with many components or a lot of history: a refresh only updates what
+  changed instead of redrawing every bar, groups off screen are not drawn, and the summary is
+  built about 4–8 times faster with a response about half the size (zero and empty values are
+  left out of each bar).
+- *Past incidents* is paged: the first `incidents_per_page` (10) incidents, then *Show more*.
+  It now lists every stored incident, not only the last 14 days. New route
+  `system_status.incidents.index` (`GET {path}/incidents?page=2`); the summary adds
+  `incidents_meta` (`page`, `per_page`, `total`, `has_more`, `open`).
+- The component detail popup opens with its name and status filled in, shows placeholders
+  while loading, then fades the sections in, grows the chart bars and counts the numbers up.
+
+## v1.4.0 - 2026-10-23
+
 - Maintenance windows: schedule them from the page or with `php artisan status:maintenance`.
   Covered components show *Maintenance*, raise no incident or alert, and the time does not
   count against uptime. New `ComponentStatus::Maintenance`, `MaintenanceStarted` /

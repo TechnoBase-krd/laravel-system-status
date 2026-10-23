@@ -13,14 +13,14 @@ use Technobase\SystemStatus\Support\StatusTimeline;
 
 /**
  * Everything the System Status page shows: the overall banner, each component with its
- * current status and its history for the chosen range (1h, 24h, 7d or 90d), and the incidents
- * of the last 14 days.
+ * current status and its history for the chosen range (1h, 24h, 7d or 90d), and the first page
+ * of incidents (open ones first; more pages come from incidentsPage()).
  */
 class GetStatusSummaryAction
 {
     private const HISTORY_DAYS = 90;
 
-    private const INCIDENT_DAYS = 14;
+    public const INCIDENTS_PER_PAGE = 10;
 
     public const RANGES = ['1h', '24h', '7d', '90d'];
 
@@ -45,6 +45,8 @@ class GetStatusSummaryAction
 
         $groups = [];
         $statuses = [];
+        // The 90 dates are the same for every component.
+        $dates = $range === '90d' ? $this->dates() : [];
 
         foreach ($this->registry->groups() as $group => $components) {
             $items = [];
@@ -74,7 +76,7 @@ class GetStatusSummaryAction
                 }
 
                 [$days, $uptime] = $range === '90d'
-                    ? $this->days($history->get($component, collect()))
+                    ? $this->days($history->get($component, collect()), $dates)
                     : [$timeline[$component]['slots'], $timeline[$component]['uptime']];
 
                 $items[] = [
@@ -101,6 +103,8 @@ class GetStatusSummaryAction
             ];
         }
 
+        $incidents = $this->incidentsPage(1);
+
         return [
             'overall' => $this->overall($statuses),
             'last_run_at' => $lastRunAt?->format('Y-m-d H:i:s'),
@@ -112,29 +116,46 @@ class GetStatusSummaryAction
                 'uptime_label' => __('system-status::status.status_range_uptime_'.$range),
             ],
             'groups' => $groups,
-            'incidents' => $this->incidents(),
+            'incidents' => $incidents['data'],
+            'incidents_meta' => $incidents['meta'] + [
+                'open' => StatusIncident::query()->whereNull('resolved_at')->count(),
+            ],
             'maintenances' => $this->maintenances(),
             'report_url' => route('system_status.report', ['month' => now()->format('Y-m'), 'format' => 'html']),
         ];
     }
 
     /**
+     * The last 90 dates, oldest first.
+     *
+     * @return array<int, string>
+     */
+    private function dates(): array
+    {
+        $today = now()->startOfDay();
+
+        return array_map(fn (int $i) => $today->copy()->subDays($i)->toDateString(), range(self::HISTORY_DAYS - 1, 0));
+    }
+
+    /**
+     * Zero and empty values are left out of each day to keep the response small.
+     *
+     * @param  array<int, string>  $dates
      * @return array{0: array<int, array>, 1: ?float}
      */
-    private function days($rows): array
+    private function days($rows, array $dates): array
     {
-        $byDay = $rows->keyBy(fn ($row) => Carbon::parse($row->day)->toDateString());
+        $byDay = $rows->keyBy(fn ($row) => substr((string) $row->day, 0, 10));
         $days = [];
         $runs = 0;
         $outageRuns = 0;
         $maintenanceRuns = 0;
 
-        for ($i = self::HISTORY_DAYS - 1; $i >= 0; $i--) {
-            $date = now()->subDays($i)->toDateString();
+        foreach ($dates as $date) {
             $row = $byDay->get($date);
 
             if (! $row || (int) $row->runs === 0) {
-                $days[] = ['label' => $date, 'level' => 'none', 'uptime' => null, 'outage_minutes' => 0, 'degraded_minutes' => 0, 'requests' => null, 'errors' => null];
+                $days[] = ['label' => $date, 'level' => 'none', 'uptime' => null];
 
                 continue;
             }
@@ -146,7 +167,7 @@ class GetStatusSummaryAction
             $outageRuns += (int) $row->outage_runs;
             $maintenanceRuns += $dayMaintenance;
 
-            $days[] = [
+            $days[] = array_filter([
                 'label' => $date,
                 'level' => match (true) {
                     (int) $row->outage_runs >= 30 => 'major',
@@ -159,9 +180,7 @@ class GetStatusSummaryAction
                 'outage_minutes' => (int) $row->outage_runs,
                 'degraded_minutes' => (int) $row->degraded_runs,
                 'maintenance_minutes' => $dayMaintenance,
-                'requests' => null,
-                'errors' => null,
-            ];
+            ], fn ($value, $key) => $value !== 0 || $key === 'uptime', ARRAY_FILTER_USE_BOTH);
         }
 
         $counted = $runs - $maintenanceRuns;
@@ -188,18 +207,34 @@ class GetStatusSummaryAction
         ];
     }
 
-    private function incidents(): array
+    /**
+     * One page of incidents: open ones first, then the most recent.
+     *
+     * @return array{data: array<int, array>, meta: array{page: int, per_page: int, total: int, has_more: bool}}
+     */
+    public function incidentsPage(int $page, ?int $perPage = null): array
     {
-        return StatusIncident::query()
+        $perPage = max(1, min(100, $perPage ?? (int) config('system-status.incidents_per_page', self::INCIDENTS_PER_PAGE)));
+        $page = max(1, $page);
+
+        $paginator = StatusIncident::query()
             ->with('updates')
-            ->where(fn ($query) => $query->whereNull('resolved_at')
-                ->orWhere('started_at', '>=', now()->subDays(self::INCIDENT_DAYS)))
             ->orderByRaw('resolved_at IS NOT NULL')
             ->orderByDesc('started_at')
-            ->limit(50)
-            ->get()
-            ->map(fn (StatusIncident $incident) => $this->incidentRow($incident))
-            ->all();
+            ->orderByDesc('id')
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        return [
+            'data' => $paginator->getCollection()
+                ->map(fn (StatusIncident $incident) => $this->incidentRow($incident))
+                ->all(),
+            'meta' => [
+                'page' => $paginator->currentPage(),
+                'per_page' => $perPage,
+                'total' => $paginator->total(),
+                'has_more' => $paginator->hasMorePages(),
+            ],
+        ];
     }
 
     /**

@@ -75,6 +75,9 @@ return [
     // --sst-* variables on .sst (e.g. .sst { --sst-accent: #0f766e; }).
     'extra_css' => null,
 
+    // Incidents shown in "Past incidents" at first and per "Show more" click (1 to 100).
+    'incidents_per_page' => 10,
+
     // Seconds between automatic refreshes of the page, per range; 'default' for the others.
     'refresh_seconds' => [
         '1h' => 20,

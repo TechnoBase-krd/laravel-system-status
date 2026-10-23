@@ -3,6 +3,7 @@
 namespace Technobase\SystemStatus\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\View\View;
 use Technobase\SystemStatus\Actions\GetStatusComponentAction;
@@ -59,6 +60,22 @@ class SystemStatusController extends Controller
     public function summary(StatusSummaryRequest $request, GetStatusSummaryAction $action): JsonResponse
     {
         return response()->json(['data' => $action->execute($request->range())]);
+    }
+
+    /**
+     * More incidents for the "Show more" button: ?page=2 (and an optional per_page, up to 100).
+     */
+    public function incidents(Request $request, GetStatusSummaryAction $action): JsonResponse
+    {
+        $validated = $request->validate([
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        return response()->json($action->incidentsPage(
+            (int) ($validated['page'] ?? 1),
+            isset($validated['per_page']) ? (int) $validated['per_page'] : null,
+        ));
     }
 
     public function component(string $component, StatusRegistry $registry, GetStatusComponentAction $action): JsonResponse

@@ -43,18 +43,25 @@ class StatusTimeline
         // Traffic is stored in 5-minute buckets, so it is only shown for slots at least that long.
         $traffic = $size >= 300 ? $this->traffic($start, $size) : [];
 
+        // Slot bounds and labels are the same for every component.
+        $now = now()->timestamp;
+        $slotBounds = [];
+        for ($slotStart = $start; $slotStart < $end; $slotStart += $size) {
+            $slotBounds[] = [$slotStart, min($slotStart + $size, $now), $this->label($slotStart, $slotStart + $size, $size)];
+        }
+
         $result = [];
 
         foreach ($components as $component) {
             $slots = [];
             $covered = 0;
             $outage = 0;
+            $componentIncidents = $incidents[$component] ?? [];
+            $componentTraffic = $traffic[$component] ?? [];
 
-            for ($slotStart = $start; $slotStart < $end; $slotStart += $size) {
-                $slotEnd = min($slotStart + $size, now()->timestamp);
-                $index = intdiv($slotStart - $start, $size);
-                [$majorSeconds, $degradedSeconds] = $this->overlap($incidents[$component] ?? [], $slotStart, $slotEnd);
-                $maintenanceSeconds = $this->maintenanceOverlap($maintenance, $component, $slotStart, $slotEnd);
+            foreach ($slotBounds as $index => [$slotStart, $slotEnd, $label]) {
+                [$majorSeconds, $degradedSeconds] = $componentIncidents === [] ? [0, 0] : $this->overlap($componentIncidents, $slotStart, $slotEnd);
+                $maintenanceSeconds = $maintenance === [] ? 0 : $this->maintenanceOverlap($maintenance, $component, $slotStart, $slotEnd);
                 $hasRun = isset($runSlots[$index]);
                 $span = max(1, $slotEnd - $slotStart);
                 // Maintenance time does not count against uptime.
@@ -74,17 +81,27 @@ class StatusTimeline
                     $outage += min($countedSpan, $majorSeconds);
                 }
 
-                $slots[] = [
-                    'label' => $this->label($slotStart, $slotStart + $size, $size),
+                // Zero and empty values are left out to keep the response small.
+                $slot = [
+                    'label' => $label,
                     'level' => $level,
                     'uptime' => $level === 'none' ? null
                         : ($countedSpan > 0 ? round(($countedSpan - min($countedSpan, $majorSeconds)) / $countedSpan * 100, 2) : 100.0),
-                    'outage_minutes' => intdiv($majorSeconds + 59, 60),
-                    'degraded_minutes' => intdiv($degradedSeconds + 59, 60),
-                    'maintenance_minutes' => intdiv($maintenanceSeconds + 59, 60),
-                    'requests' => $traffic[$component][$index]['requests'] ?? null,
-                    'errors' => $traffic[$component][$index]['errors'] ?? null,
                 ];
+                if ($majorSeconds > 0) {
+                    $slot['outage_minutes'] = intdiv($majorSeconds + 59, 60);
+                }
+                if ($degradedSeconds > 0) {
+                    $slot['degraded_minutes'] = intdiv($degradedSeconds + 59, 60);
+                }
+                if ($maintenanceSeconds > 0) {
+                    $slot['maintenance_minutes'] = intdiv($maintenanceSeconds + 59, 60);
+                }
+                if (isset($componentTraffic[$index])) {
+                    $slot['requests'] = $componentTraffic[$index]['requests'];
+                    $slot['errors'] = $componentTraffic[$index]['errors'];
+                }
+                $slots[] = $slot;
             }
 
             $result[$component] = [
@@ -110,7 +127,8 @@ class StatusTimeline
             ->where('checked_at', '>=', Carbon::createFromTimestamp($start, config('app.timezone')))
             ->pluck('checked_at')
             ->each(function ($checkedAt) use (&$slots, $start, $size) {
-                $slots[intdiv(Carbon::parse($checkedAt)->timestamp - $start, $size)] = true;
+                // strtotime() reads the stored local time like Carbon::parse(), only faster.
+                $slots[intdiv(strtotime((string) $checkedAt) - $start, $size)] = true;
             });
 
         return $slots;
@@ -203,7 +221,7 @@ class StatusTimeline
             ->groupBy('component', 'bucket_at')
             ->get()
             ->each(function ($row) use (&$traffic, $start, $size) {
-                $index = intdiv(Carbon::parse($row->bucket_at)->timestamp - $start, $size);
+                $index = intdiv(strtotime((string) $row->bucket_at) - $start, $size);
                 $traffic[$row->component][$index]['requests'] = ($traffic[$row->component][$index]['requests'] ?? 0) + (int) $row->requests;
                 $traffic[$row->component][$index]['errors'] = ($traffic[$row->component][$index]['errors'] ?? 0) + (int) $row->errors;
             });

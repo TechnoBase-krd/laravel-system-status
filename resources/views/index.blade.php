@@ -20,6 +20,7 @@
     <div class="content sst" id="sst"
          data-summary-url="{{ route('system_status.summary') }}"
          data-component-url="{{ route('system_status.component', ['component' => '__component__']) }}"
+         data-incidents-url="{{ route('system_status.incidents.index') }}"
          data-can-manage="{{ $canManage ? '1' : '0' }}"
          @if($canManage)
          data-csrf="{{ csrf_token() }}"
@@ -139,6 +140,13 @@
             <div class="sst-panel-body" id="sstIncidents">
                 <p class="sst-muted tw:m-0">@lang('system-status::status.status_loading')</p>
             </div>
+            <footer class="sst-incidents-more" id="sstIncidentsMore" hidden>
+                <span class="sst-muted" id="sstIncidentsShown"></span>
+                <button type="button" class="sst-more-button" id="sstIncidentsMoreButton">
+                    <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                    <span>@lang('system-status::status.status_show_more')</span>
+                </button>
+            </footer>
         </section>
 
         <div class="sst-tooltip" id="sstTooltip" role="tooltip" hidden></div>
