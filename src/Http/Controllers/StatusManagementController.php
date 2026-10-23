@@ -6,9 +6,17 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
+use InvalidArgumentException;
 use Technobase\SystemStatus\Actions\GetStatusSummaryAction;
+use Technobase\SystemStatus\Enums\ComponentStatus;
+use Technobase\SystemStatus\Enums\IncidentState;
+use Technobase\SystemStatus\Http\Requests\StoreIncidentRequest;
+use Technobase\SystemStatus\Http\Requests\StoreIncidentUpdateRequest;
 use Technobase\SystemStatus\Http\Requests\StoreMaintenanceRequest;
+use Technobase\SystemStatus\Http\Requests\UpdateIncidentRequest;
+use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
+use Technobase\SystemStatus\Services\IncidentService;
 use Technobase\SystemStatus\Services\MaintenanceService;
 
 /**
@@ -16,6 +24,38 @@ use Technobase\SystemStatus\Services\MaintenanceService;
  */
 class StatusManagementController extends Controller
 {
+    public function storeIncident(StoreIncidentRequest $request, IncidentService $service, GetStatusSummaryAction $summary): JsonResponse
+    {
+        $incident = $service->post(
+            $request->validated('component'),
+            ComponentStatus::from($request->validated('severity')),
+            $request->validated('title'),
+            $request->validated('message'),
+            IncidentState::from($request->validated('state') ?? IncidentState::Investigating->value),
+            self::author($request),
+        );
+
+        return response()->json(['data' => $summary->incidentRow($incident->fresh('updates'))], 201);
+    }
+
+    public function storeIncidentUpdate(StatusIncident $incident, StoreIncidentUpdateRequest $request, IncidentService $service, GetStatusSummaryAction $summary): JsonResponse
+    {
+        try {
+            $service->update($incident, IncidentState::from($request->validated('state')), $request->validated('message'), self::author($request));
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage(), 'errors' => ['state' => [$e->getMessage()]]], 422);
+        }
+
+        return response()->json(['data' => $summary->incidentRow($incident->fresh('updates'))], 201);
+    }
+
+    public function updateIncident(StatusIncident $incident, UpdateIncidentRequest $request, IncidentService $service, GetStatusSummaryAction $summary): JsonResponse
+    {
+        $service->postmortem($incident, $request->validated('postmortem'));
+
+        return response()->json(['data' => $summary->incidentRow($incident->fresh('updates'))]);
+    }
+
     public function storeMaintenance(StoreMaintenanceRequest $request, MaintenanceService $service, GetStatusSummaryAction $summary): JsonResponse
     {
         $maintenance = $service->schedule(

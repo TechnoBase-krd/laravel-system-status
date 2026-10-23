@@ -8,8 +8,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Notification;
-use NotificationChannels\Telegram\TelegramMessage;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Events\ComponentStatusChanged;
 use Technobase\SystemStatus\Events\MaintenanceEnded;
@@ -19,9 +17,10 @@ use Technobase\SystemStatus\Models\StatusCheck;
 use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
-use Technobase\SystemStatus\Notifications\StatusAlertNotification;
 use Technobase\SystemStatus\Probes\Probe;
 use Technobase\SystemStatus\Probes\ProbeResult;
+use Technobase\SystemStatus\Support\StatusAlerter;
+use Technobase\SystemStatus\Support\StatusDuration;
 use Technobase\SystemStatus\Support\StatusMetrics;
 use Technobase\SystemStatus\Support\StatusRegistry;
 use Technobase\SystemStatus\Support\StatusSignal;
@@ -39,6 +38,7 @@ class StatusService
     public function __construct(
         private readonly StatusMetrics $metrics,
         private readonly StatusRegistry $registry,
+        private readonly StatusAlerter $alerter,
     ) {}
 
     /**
@@ -60,6 +60,7 @@ class StatusService
         $this->dispatchQueueHeartbeats($now);
         $traffic = $this->traffic($now);
         $maintenance = $this->maintenanceWindows($now);
+        $manual = $this->openManualIncidents();
 
         $changes = [];
         $daily = [];
@@ -70,6 +71,7 @@ class StatusService
                 $entry['definition'],
                 $probeResults[$component] ?? [],
                 $traffic[$component] ?? [],
+                $manual[$component] ?? null,
             );
 
             $state = isset($maintenance[$component])
@@ -204,9 +206,14 @@ class StatusService
     /**
      * @return array{0: ComponentStatus, 1: ?string, 2: bool} status, message, configured
      */
-    private function evaluate(string $component, array $definition, array $probeResults, array $traffic): array
+    private function evaluate(string $component, array $definition, array $probeResults, array $traffic, ?StatusIncident $manual = null): array
     {
         $sources = [];
+
+        // An open incident posted by hand holds the component at its severity until resolved.
+        if ($manual) {
+            $sources[] = [$manual->severity, $manual->title ?: $manual->message];
+        }
 
         foreach ($probeResults as $result) {
             if (! $result->isSkipped()) {
@@ -251,6 +258,26 @@ class StatusService
         }
 
         return [$status, $message, $configured];
+    }
+
+    /**
+     * The most severe open manual incident of each component.
+     *
+     * @return array<string, StatusIncident>
+     */
+    private function openManualIncidents(): array
+    {
+        try {
+            return StatusIncident::query()->open()->manual()->get()
+                ->sortByDesc(fn (StatusIncident $incident) => $incident->severity->severity())
+                ->unique('component')
+                ->keyBy('component')
+                ->all();
+        } catch (Throwable $e) {
+            Log::warning('Manual status incidents could not be read.', ['exception' => $e::class]);
+
+            return [];
+        }
     }
 
     /**
@@ -442,16 +469,23 @@ class StatusService
         ?string $message,
         CarbonInterface $now,
     ): void {
-        $open = StatusIncident::query()->open()->where('component', $component)->latest('started_at')->first();
+        $open = StatusIncident::query()->open()->automatic()->where('component', $component)->latest('started_at')->first();
+        $manual = StatusIncident::query()->open()->manual()->where('component', $component)->get()
+            ->max(fn (StatusIncident $incident) => $incident->severity->severity());
         $name = $this->registry->label($component, 'en');
 
         if ($current === ComponentStatus::Operational) {
             if ($open) {
                 $open->update(['resolved_at' => $now]);
-                $minutes = max(1, (int) $open->started_at->diffInMinutes($now));
-                $this->alert("✅ {$name} recovered after {$minutes} min.");
+                $duration = StatusDuration::format((int) $open->started_at->diffInMinutes($now));
+                $this->alert("✅ {$name} recovered after {$duration}.");
             }
 
+            return;
+        }
+
+        // People already know about it: a manual incident at this severity or worse is open.
+        if (! $open && $manual !== null && $current->severity() <= $manual) {
             return;
         }
 
@@ -535,32 +569,9 @@ class StatusService
         );
     }
 
-    /**
-     * Sends a plain-text alert to the Telegram chat in system-status.alerts.telegram_chat_id.
-     * Nothing is sent in `local`, while the bot or chat is not configured, or without the
-     * laravel-notification-channels/telegram package; the alert is logged instead.
-     */
     private function alert(string $text): void
     {
-        $chatId = config('system-status.alerts.telegram_chat_id');
-
-        if (! config('system-status.alerts.enabled', true)
-            || app()->environment('local')
-            || blank($chatId)
-            || blank(config('services.telegram-bot-api.token'))
-            || ! class_exists(TelegramMessage::class)) {
-            Log::info('[system-status] '.$text);
-
-            return;
-        }
-
-        try {
-            $prefix = (string) config('system-status.alerts.prefix', '['.config('app.name').' status]');
-
-            Notification::route('telegram', $chatId)->notifyNow(new StatusAlertNotification(trim($prefix.' '.$text)));
-        } catch (Throwable $e) {
-            Log::warning('System status alert could not be sent.', ['exception' => $e::class]);
-        }
+        $this->alerter->send($text);
     }
 
     /**

@@ -185,6 +185,7 @@ class GetStatusSummaryAction
     private function incidents(): array
     {
         return StatusIncident::query()
+            ->with('updates')
             ->where(fn ($query) => $query->whereNull('resolved_at')
                 ->orWhere('started_at', '>=', now()->subDays(self::INCIDENT_DAYS)))
             ->orderByRaw('resolved_at IS NOT NULL')
@@ -231,10 +232,24 @@ class GetStatusSummaryAction
         $end = $incident->resolved_at ?? now();
 
         return [
+            'id' => $incident->id,
             'component' => $incident->component,
             'component_label' => $this->registry->label($incident->component),
             'severity' => $incident->severity->value,
             'severity_label' => $incident->severity->label(),
+            'title' => $incident->title,
+            'source' => $incident->source ?? StatusIncident::SOURCE_AUTO,
+            'state' => $incident->state?->value,
+            'state_label' => $incident->state?->label(),
+            'postmortem' => $incident->postmortem,
+            'created_by' => $incident->created_by,
+            'updates' => $incident->relationLoaded('updates') ? $incident->updates->map(fn ($update) => [
+                'state' => $update->state->value,
+                'state_label' => $update->state->label(),
+                'message' => $update->message,
+                'author' => $update->author,
+                'at' => $update->created_at?->format('Y-m-d H:i'),
+            ])->values()->all() : [],
             'message' => $incident->message,
             'started_at' => $incident->started_at->format('Y-m-d H:i'),
             'resolved_at' => $incident->resolved_at?->format('Y-m-d H:i'),

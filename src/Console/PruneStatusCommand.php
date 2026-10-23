@@ -23,6 +23,12 @@ class PruneStatusCommand extends Command
                 ->where('bucket_at', '<', now()->subDays($days['route_buckets']))->delete(),
             'status_daily' => DB::table('status_daily')
                 ->where('day', '<', now()->subDays($days['daily'])->toDateString())->delete(),
+            // Timeline entries go with their incident (also on databases without foreign keys).
+            'status_incident_updates' => Schema::hasTable('status_incident_updates')
+                ? DB::table('status_incident_updates')->whereIn('incident_id', DB::table('status_incidents')->select('id')
+                    ->whereNotNull('resolved_at')
+                    ->where('resolved_at', '<', now()->subDays($days['incidents'])))->delete()
+                : 0,
             'status_incidents' => DB::table('status_incidents')
                 ->whereNotNull('resolved_at')
                 ->where('resolved_at', '<', now()->subDays($days['incidents']))->delete(),

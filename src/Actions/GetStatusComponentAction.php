@@ -96,6 +96,7 @@ class GetStatusComponentAction
             ->all();
 
         $incidents = StatusIncident::query()
+            ->with('updates')
             ->where('component', $component)
             ->latest('started_at')
             ->limit(10)

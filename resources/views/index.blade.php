@@ -19,6 +19,9 @@
          @if($canManage ?? false)
          data-csrf="{{ csrf_token() }}"
          data-maintenance-url="{{ route('system_status.maintenances.store') }}"
+         data-incident-url="{{ route('system_status.incidents.store') }}"
+         data-incident-update-url="{{ route('system_status.incidents.updates.store', ['incident' => '__id__']) }}"
+         data-incident-edit-url="{{ route('system_status.incidents.update', ['incident' => '__id__']) }}"
          data-maintenance-end-url="{{ route('system_status.maintenances.end', ['maintenance' => '__id__']) }}"
          @endif
          >
@@ -35,6 +38,10 @@
             </div>
             <div class="sst-hero-actions">
                 @if($canManage ?? false)
+                    <button type="button" class="btn sst-refresh" data-toggle="modal" data-target="#sstIncidentModal">
+                        <i class="fas fa-bullhorn" aria-hidden="true"></i>
+                        <span>@lang('system-status::status.status_report_incident')</span>
+                    </button>
                     <button type="button" class="btn sst-refresh" data-toggle="modal" data-target="#sstMaintenanceModal">
                         <i class="fas fa-tools" aria-hidden="true"></i>
                         <span>@lang('system-status::status.status_schedule_maintenance')</span>
@@ -183,9 +190,20 @@
                         <strong class="sst-incident-component"></strong>
                         <span class="sst-pill sst-incident-severity"></span>
                         <span class="sst-incident-state"></span>
+                        <span class="sst-incident-source"></span>
                     </div>
+                    <p class="sst-incident-title"></p>
                     <p class="sst-incident-message"></p>
                     <small class="sst-incident-time"></small>
+                    <ol class="sst-timeline list-unstyled"></ol>
+                    <div class="sst-postmortem">
+                        <strong>@lang('system-status::status.status_postmortem')</strong>
+                        <p class="sst-postmortem-text"></p>
+                    </div>
+                    <div class="sst-incident-actions">
+                        <button type="button" class="btn btn-link btn-sm sst-add-update">@lang('system-status::status.status_add_update')</button>
+                        <button type="button" class="btn btn-link btn-sm sst-edit-postmortem">@lang('system-status::status.status_edit_postmortem')</button>
+                    </div>
                 </div>
             </article>
         </template>
@@ -193,6 +211,119 @@
 @endsection
 
 @push(config('system-status.stacks.modals', 'modals'))
+    @if($canManage ?? false)
+        <div id="sstIncidentModal" class="modal fade" tabindex="-1" aria-labelledby="sstIncidentFormTitle">
+            <div class="modal-dialog">
+                <form class="modal-content sst sst-form" id="sstIncidentForm" novalidate>
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="sstIncidentFormTitle">@lang('system-status::status.status_report_incident')</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="{{ __('system-status::status.close') }}">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="sst-form-hint">@lang('system-status::status.status_incident_hint')</p>
+                        <div class="alert alert-danger sst-form-error" hidden></div>
+                        <div class="form-group">
+                            <label for="sstIncidentComponent">@lang('system-status::status.status_form_component')</label>
+                            <select class="form-control" id="sstIncidentComponent" name="component" required>
+                                @foreach(($componentOptions ?? []) as $group)
+                                    <optgroup label="{{ $group['label'] }}">
+                                        @foreach($group['components'] as $key => $label)
+                                            <option value="{{ $key }}">{{ $label }}</option>
+                                        @endforeach
+                                    </optgroup>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-sm-6">
+                                <label for="sstIncidentSeverity">@lang('system-status::status.status_form_severity')</label>
+                                <select class="form-control" id="sstIncidentSeverity" name="severity">
+                                    <option value="degraded">@lang('system-status::status.status_degraded')</option>
+                                    <option value="major_outage">@lang('system-status::status.status_major_outage')</option>
+                                </select>
+                            </div>
+                            <div class="form-group col-sm-6">
+                                <label for="sstIncidentState">@lang('system-status::status.status_form_state')</label>
+                                <select class="form-control" id="sstIncidentState" name="state">
+                                    @foreach(['investigating', 'identified', 'monitoring'] as $incidentState)
+                                        <option value="{{ $incidentState }}">@lang('system-status::status.status_state_'.$incidentState)</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="sstIncidentTitle">@lang('system-status::status.status_form_title')</label>
+                            <input type="text" class="form-control" id="sstIncidentTitle" name="title" maxlength="200" required
+                                   placeholder="{{ __('system-status::status.status_incident_title_placeholder') }}">
+                        </div>
+                        <div class="form-group mb-0">
+                            <label for="sstIncidentMessage">@lang('system-status::status.status_form_message')</label>
+                            <textarea class="form-control" id="sstIncidentMessage" name="message" rows="3" maxlength="500"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-dismiss="modal">@lang('system-status::status.close')</button>
+                        <button type="submit" class="btn btn-primary sst-submit">@lang('system-status::status.status_form_post')</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="sstUpdateModal" class="modal fade" tabindex="-1" aria-labelledby="sstUpdateFormTitle">
+            <div class="modal-dialog">
+                <form class="modal-content sst sst-form" id="sstUpdateForm" novalidate>
+                    <input type="hidden" name="incident_id">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="sstUpdateFormTitle">@lang('system-status::status.status_add_update')</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="{{ __('system-status::status.close') }}">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="sst-form-hint sst-update-for"></p>
+                        <div class="alert alert-danger sst-form-error" hidden></div>
+                        <div class="form-group">
+                            <label for="sstUpdateState">@lang('system-status::status.status_form_state')</label>
+                            <select class="form-control" id="sstUpdateState" name="state">
+                                @foreach(['investigating', 'identified', 'monitoring', 'resolved'] as $incidentState)
+                                    <option value="{{ $incidentState }}">@lang('system-status::status.status_state_'.$incidentState)</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="form-group mb-0">
+                            <label for="sstUpdateMessage">@lang('system-status::status.status_message')</label>
+                            <textarea class="form-control" id="sstUpdateMessage" name="message" rows="3" maxlength="2000" required></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-dismiss="modal">@lang('system-status::status.close')</button>
+                        <button type="submit" class="btn btn-primary sst-submit">@lang('system-status::status.status_form_post')</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="sstPostmortemModal" class="modal fade" tabindex="-1" aria-labelledby="sstPostmortemFormTitle">
+            <div class="modal-dialog modal-lg">
+                <form class="modal-content sst sst-form" id="sstPostmortemForm" novalidate>
+                    <input type="hidden" name="incident_id">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="sstPostmortemFormTitle">@lang('system-status::status.status_postmortem')</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="{{ __('system-status::status.close') }}">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="sst-form-hint">@lang('system-status::status.status_postmortem_hint')</p>
+                        <div class="alert alert-danger sst-form-error" hidden></div>
+                        <textarea class="form-control" name="postmortem" rows="8" maxlength="10000"
+                                  aria-label="{{ __('system-status::status.status_postmortem') }}"></textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-dismiss="modal">@lang('system-status::status.close')</button>
+                        <button type="submit" class="btn btn-primary sst-submit">@lang('system-status::status.status_form_save')</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+
     @if($canManage ?? false)
         <div id="sstMaintenanceModal" class="modal fade" tabindex="-1" aria-labelledby="sstMaintenanceTitle">
             <div class="modal-dialog modal-lg">
@@ -404,6 +535,8 @@
                 affects: @json(__('system-status::status.status_affects', ['components' => ':components'])),
                 by: @json(__('system-status::status.status_by', ['name' => ':name'])),
                 saveFailed: @json(__('system-status::status.status_save_failed')),
+                manual: @json(__('system-status::status.status_source_manual')),
+                updateFor: @json(__('system-status::status.status_update_for', ['title' => ':title'])),
                 today: @json(__('system-status::status.status_today')),
                 now: @json(__('system-status::status.status_now')),
             };
@@ -618,7 +751,8 @@
                 applyFilter();
             }
 
-            function renderIncidents(container, incidents) {
+            // manage: show the update / postmortem buttons (not inside the detail modal).
+            function renderIncidents(container, incidents, manage) {
                 if (!incidents.length) {
                     const empty = document.createElement('p');
                     empty.className = 'sst-empty-state';
@@ -635,17 +769,54 @@
                 const template = document.getElementById('sstIncidentTemplate');
                 const fragment = document.createDocumentFragment();
 
+                const canManage = manage && root.dataset.canManage === '1';
+
                 incidents.forEach(function (incident) {
                     const node = template.content.firstElementChild.cloneNode(true);
                     node.dataset.ongoing = incident.ongoing ? '1' : '0';
                     node.dataset.status = incident.severity;
+                    node.dataset.id = incident.id;
                     setText(node, '.sst-incident-component', incident.component_label);
                     setPill(node.querySelector('.sst-incident-severity'), incident.severity, incident.severity_label);
-                    setText(node, '.sst-incident-state', incident.ongoing ? i18n.ongoing : i18n.resolved);
-                    const message = setText(node, '.sst-incident-message', incident.message || '');
-                    message.hidden = !incident.message;
+                    setText(node, '.sst-incident-state', incident.ongoing ? (incident.state_label || i18n.ongoing) : i18n.resolved);
+                    const source = setText(node, '.sst-incident-source', incident.source === 'manual' ? i18n.manual : '');
+                    source.hidden = incident.source !== 'manual';
+                    const title = setText(node, '.sst-incident-title', incident.title || '');
+                    title.hidden = !incident.title;
+                    // The first timeline entry repeats the message of a manual incident.
+                    const showMessage = incident.message && !(incident.updates || []).length;
+                    const message = setText(node, '.sst-incident-message', showMessage ? incident.message : '');
+                    message.hidden = !showMessage;
                     setText(node, '.sst-incident-time',
-                        incident.started_at + ' → ' + (incident.resolved_at || '…') + ' · ' + fill(i18n.duration, {minutes: incident.duration_minutes}));
+                        incident.started_at + ' → ' + (incident.resolved_at || '…') + ' · ' + fill(i18n.duration, {minutes: incident.duration_minutes})
+                        + (incident.created_by ? ' · ' + fill(i18n.by, {name: incident.created_by}) : ''));
+
+                    const timeline = node.querySelector('.sst-timeline');
+                    (incident.updates || []).forEach(function (update) {
+                        const item = document.createElement('li');
+                        item.dataset.state = update.state;
+                        const head = document.createElement('strong');
+                        head.textContent = update.state_label;
+                        const text = document.createElement('span');
+                        text.textContent = update.message;
+                        const meta = document.createElement('small');
+                        meta.textContent = update.at + (update.author ? ' · ' + update.author : '');
+                        item.append(head, text, meta);
+                        timeline.appendChild(item);
+                    });
+                    timeline.hidden = !timeline.children.length;
+
+                    const postmortem = node.querySelector('.sst-postmortem');
+                    setText(node, '.sst-postmortem-text', incident.postmortem || '');
+                    postmortem.hidden = !incident.postmortem;
+
+                    const addUpdate = node.querySelector('.sst-add-update');
+                    const editPostmortem = node.querySelector('.sst-edit-postmortem');
+                    addUpdate.hidden = !(canManage && incident.ongoing);
+                    editPostmortem.hidden = !(canManage && !incident.ongoing);
+                    node.querySelector('.sst-incident-actions').hidden = addUpdate.hidden && editPostmortem.hidden;
+                    node._sstIncident = incident;
+
                     fragment.appendChild(node);
                 });
 
@@ -771,6 +942,52 @@
                 });
             });
 
+            $(document).on('submit', '#sstIncidentForm', function (event) {
+                event.preventDefault();
+                submitForm(this, 'POST', root.dataset.incidentUrl, function (data) { return data; });
+            });
+
+            $(document).on('click', '.sst-add-update', function () {
+                const incident = this.closest('.sst-incident')._sstIncident;
+                const form = document.getElementById('sstUpdateForm');
+                form.reset();
+                form.elements.incident_id.value = incident.id;
+                form.querySelector('.sst-update-for').textContent = fill(i18n.updateFor, {title: incident.title || incident.component_label});
+                // Only incidents posted by hand are resolved by a person.
+                form.querySelector('option[value="resolved"]').hidden = incident.source !== 'manual';
+                form.querySelector('option[value="resolved"]').disabled = incident.source !== 'manual';
+                form.elements.state.value = incident.state && incident.state !== 'resolved' ? incident.state : 'investigating';
+                form.querySelector('.sst-form-error').hidden = true;
+                $('#sstUpdateModal').modal('show');
+            });
+
+            $(document).on('submit', '#sstUpdateForm', function (event) {
+                event.preventDefault();
+                const url = root.dataset.incidentUpdateUrl.replace('__id__', this.elements.incident_id.value);
+                submitForm(this, 'POST', url, function (data) {
+                    delete data.incident_id;
+                    return data;
+                });
+            });
+
+            $(document).on('click', '.sst-edit-postmortem', function () {
+                const incident = this.closest('.sst-incident')._sstIncident;
+                const form = document.getElementById('sstPostmortemForm');
+                form.elements.incident_id.value = incident.id;
+                form.elements.postmortem.value = incident.postmortem || '';
+                form.querySelector('.sst-form-error').hidden = true;
+                $('#sstPostmortemModal').modal('show');
+            });
+
+            $(document).on('submit', '#sstPostmortemForm', function (event) {
+                event.preventDefault();
+                const url = root.dataset.incidentEditUrl.replace('__id__', this.elements.incident_id.value);
+                submitForm(this, 'PATCH', url, function (data) {
+                    delete data.incident_id;
+                    return data;
+                });
+            });
+
             $(document).on('click', '.sst-maintenance-end', function () {
                 const button = this;
                 button.disabled = true;
@@ -873,7 +1090,7 @@
                         renderHero(state.data);
                         renderKpis(state.data);
                         renderGroups(state.data.groups);
-                        renderIncidents(document.getElementById('sstIncidents'), state.data.incidents);
+                        renderIncidents(document.getElementById('sstIncidents'), state.data.incidents, true);
                         renderMaintenances(state.data.maintenances || []);
                     })
                     .fail(function () {

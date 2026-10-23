@@ -18,6 +18,14 @@ Route::middleware([...(array) config('system-status.middleware', ['web', 'auth']
 
         // Posting incidents and scheduling maintenance (system-status.access.manage_gate).
         Route::middleware(AuthorizeSystemStatusManagement::class)->group(function () use ($path) {
+            Route::post($path.'/incidents', [StatusManagementController::class, 'storeIncident'])
+                ->name('system_status.incidents.store');
+            Route::post($path.'/incidents/{incident}/updates', [StatusManagementController::class, 'storeIncidentUpdate'])
+                ->whereNumber('incident')
+                ->name('system_status.incidents.updates.store');
+            Route::patch($path.'/incidents/{incident}', [StatusManagementController::class, 'updateIncident'])
+                ->whereNumber('incident')
+                ->name('system_status.incidents.update');
             Route::post($path.'/maintenances', [StatusManagementController::class, 'storeMaintenance'])
                 ->name('system_status.maintenances.store');
             Route::delete($path.'/maintenances/{maintenance}', [StatusManagementController::class, 'endMaintenance'])
