@@ -41,7 +41,22 @@
 - Pest test suite on Orchestra Testbench (`composer test`, `composer lint`) and a GitHub
   Actions matrix: PHP 8.3 / 8.4, Laravel 12 / 13, SQLite, MySQL and PostgreSQL.
 
+- New look for the write actions: report incident, schedule maintenance, timeline updates and
+  postmortems open in slide-over panels (from the left in RTL) with colour-coded choices,
+  duration presets (15 min to 4 h), a searchable component picker, a ⋯ menu on every component
+  (prefilled forms), Ctrl / ⌘ + Enter to send, Esc to close and a toast after each save. The
+  detail popup is a native dialog that fills the screen on phones.
+- No more jQuery or Bootstrap: the page script is plain JavaScript and the dialogs and forms use
+  Tailwind from a CDN (`tailwind_cdn`, prefixed `tw:` classes, no global reset). The standalone
+  page now loads only Font Awesome. Better tablet and phone layouts, and pointer cursors on
+  everything clickable.
+- `composer serve`: a Testbench demo app with sample data (`workbench/`).
+
 **Upgrade notes**
+
+- The page no longer needs jQuery or the Bootstrap modal plugin. A layout that loaded them only
+  for this page can drop them. Views published from an older version (`system-status-views`)
+  should be published again.
 
 - Run `php artisan migrate`: five new migrations (maintenance windows, incident updates,
   latency columns, `affected_by`, `status_monthly`). `php artisan status:doctor` tells you if

@@ -241,6 +241,7 @@
 .sst .sst-search {
     position: relative;
     flex: 1 1 220px;
+    min-inline-size: 0;
     max-inline-size: 320px;
     margin: 0;
 }
@@ -270,6 +271,9 @@
 }
 
 .sst .sst-legend {
+    margin: 0;
+    padding: 0;
+    list-style: none;
     display: flex;
     flex-wrap: wrap;
     gap: .35rem .9rem;
@@ -391,6 +395,9 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
 }
 
 .sst .sst-components {
+    margin: 0;
+    padding: 0;
+    list-style: none;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
 }
@@ -656,6 +663,7 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
 }
 
 .sst .sst-incident-body {
+    flex: 1;
     min-inline-size: 0;
 }
 
@@ -762,9 +770,23 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     margin-block-start: .35rem;
 }
 
-.sst .sst-incident-actions .btn {
-    padding: 0;
+.sst .sst-link-button {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .15rem .1rem;
+    border: 0;
+    background: none;
+    color: var(--sst-accent);
+    font: inherit;
     font-size: .78rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.sst .sst-link-button:hover,
+.sst .sst-link-button:focus-visible {
+    text-decoration: underline;
 }
 
 /* ---------- maintenance ---------- */
@@ -786,54 +808,165 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
 }
 
 .sst .sst-maintenance-end {
-    padding: 0;
     margin-inline-start: auto;
-    font-size: .78rem;
 }
 
-/* ---------- forms ---------- */
-.sst.sst-form {
-    border: 0;
-    border-radius: var(--sst-radius);
-}
-
-.sst .sst-form-hint {
-    font-size: .85rem;
-    color: var(--sst-muted);
-}
-
-.sst .sst-component-picker {
+/* ---------- per-component menu button ---------- */
+.sst .sst-component-menu {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
-    gap: .75rem 1rem;
-    max-block-size: 16rem;
-    overflow: auto;
-    padding: .75rem;
-    border: 1px solid var(--sst-border);
-    border-radius: .5rem;
+    place-items: center;
+    inline-size: 1.75rem;
+    block-size: 1.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    color: var(--sst-muted);
+    background: transparent;
+    cursor: pointer;
+    transition: background .15s, color .15s;
 }
 
-.sst .sst-picker-group {
+.sst .sst-component-menu:hover,
+.sst .sst-component-menu:focus-visible,
+.sst .sst-component-menu[aria-expanded="true"] {
+    color: var(--sst-fg);
+    background: var(--sst-surface-2);
+}
+
+.sst-menu {
+    position: fixed;
+    z-index: 1085;
+    animation: sst-pop .14s var(--sst-ease);
+}
+
+/* ---------- dialogs: centered detail and slide-over panels ---------- */
+html.sst-scroll-lock {
+    overflow: hidden;
+}
+
+dialog.sst-dialog,
+dialog.sst-sheet {
+    padding: 0;
+    border: 0;
+    color: var(--sst-fg);
+    background: var(--sst-surface);
+    box-shadow: 0 24px 64px -12px rgb(15 23 42 / .35);
+}
+
+dialog.sst-dialog::backdrop,
+dialog.sst-sheet::backdrop {
+    background: rgb(15 23 42 / 0);
+    transition: background .22s var(--sst-ease);
+}
+
+dialog.sst-dialog.is-open::backdrop,
+dialog.sst-sheet.is-open::backdrop {
+    background: rgb(15 23 42 / .5);
+}
+
+dialog.sst-dialog {
+    inline-size: min(72rem, calc(100vw - 2rem));
+    max-inline-size: none;
+    max-block-size: calc(100dvh - 2rem);
+    margin: auto;
+    border-radius: var(--sst-radius);
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(12px) scale(.98);
+    transition: opacity .22s var(--sst-ease), transform .22s var(--sst-ease);
+}
+
+dialog.sst-dialog.is-open {
+    opacity: 1;
+    transform: none;
+}
+
+dialog.sst-dialog > div {
+    max-block-size: calc(100dvh - 2rem);
+}
+
+/* Slides in from the inline end: the right in LTR, the left in RTL. */
+dialog.sst-sheet {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+    inline-size: min(32rem, 100vw);
+    max-inline-size: 100vw;
+    block-size: 100dvh;
+    max-block-size: none;
+    margin: 0;
+    transform: translateX(100%);
+    transition: transform .22s var(--sst-ease);
+}
+
+dialog.sst-sheet.sst-sheet-wide {
+    inline-size: min(44rem, 100vw);
+}
+
+[dir="rtl"] dialog.sst-sheet,
+dialog.sst-sheet:dir(rtl) {
+    transform: translateX(-100%);
+}
+
+dialog.sst-sheet.is-open,
+[dir="rtl"] dialog.sst-sheet.is-open {
+    transform: none;
+}
+
+/* The timeline-update stepper. */
+.sst .sst-stepper .sst-step-bar {
+    background: var(--sst-surface-2);
+}
+
+.sst .sst-stepper [data-reached="1"] .sst-step-bar {
+    background: var(--sst-accent);
+}
+
+.sst .sst-stepper [data-reached="1"] span:last-child {
+    color: var(--sst-fg);
+}
+
+/* ---------- toasts ---------- */
+.sst-toasts {
+    position: fixed;
+    z-index: 1090;
+    inset-block-end: 1.25rem;
+    inset-inline-end: 1.25rem;
     display: flex;
     flex-direction: column;
-    gap: .2rem;
+    align-items: flex-end;
+    gap: .5rem;
+    pointer-events: none;
 }
 
-.sst .sst-picker-group strong {
-    font-size: .72rem;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-    color: var(--sst-muted);
-}
-
-.sst .sst-check {
+.sst-toast {
     display: flex;
     align-items: center;
-    gap: .45rem;
-    margin: 0;
-    font-size: .85rem;
-    font-weight: 400;
-    cursor: pointer;
+    gap: .6rem;
+    padding: .7rem 1rem;
+    border-radius: .65rem;
+    color: #fff;
+    background: rgb(17 24 39 / .95);
+    box-shadow: 0 12px 32px -8px rgb(0 0 0 / .35);
+    font-size: .875rem;
+    font-weight: 500;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity .25s var(--sst-ease), transform .25s var(--sst-ease);
+}
+
+.sst-toast.is-visible {
+    opacity: 1;
+    transform: none;
+}
+
+.sst-toast i {
+    color: #4ade80;
+}
+
+.sst-toast[data-tone="error"] i {
+    color: #f87171;
 }
 
 /* ---------- skeleton ---------- */
@@ -846,30 +979,7 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     animation: sst-shimmer 1.3s linear infinite;
 }
 
-/* ---------- detail modal ---------- */
-.sst.sst-detail {
-    border: 0;
-    border-radius: var(--sst-radius);
-    overflow: hidden;
-}
-
-.sst .sst-detail-head {
-    align-items: center;
-    background: var(--sst-surface-2);
-    border-block-end: 1px solid var(--sst-border);
-}
-
-.sst .sst-detail-heading {
-    display: flex;
-    align-items: center;
-    gap: .6rem;
-    min-inline-size: 0;
-}
-
-.sst .sst-detail-heading .modal-title {
-    font-weight: 700;
-}
-
+/* ---------- detail dialog ---------- */
 .sst .sst-detail-message {
     --sst-tone: var(--sst-degraded);
     padding: .65rem .85rem;
@@ -951,7 +1061,18 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
 }
 
 .sst .sst-table td {
+    padding: .5rem .75rem;
+    border-block-start: 1px solid var(--sst-border);
     vertical-align: middle;
+}
+
+.sst .sst-center {
+    text-align: center;
+}
+
+.sst .sst-chart-empty {
+    margin: 0;
+    padding-block: 1.5rem;
 }
 
 .sst .sst-table .sst-num {
@@ -1019,6 +1140,10 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     from { opacity: 0; transform: translate3d(0, 8px, 0); }
 }
 
+@keyframes sst-pop {
+    from { opacity: 0; transform: translateY(-4px) scale(.98); }
+}
+
 @keyframes sst-spin {
     to { transform: rotate(1turn); }
 }
@@ -1062,5 +1187,202 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     .sst *::after {
         animation: none !important;
         transition: none !important;
+    }
+}
+
+/* ---------- buttons: one size for <button> and <a>, pointer on everything clickable ---------- */
+.sst .sst-refresh {
+    font-family: inherit;
+    font-size: .8125rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.sst :where(button, [role="button"], [role="menuitem"], a[href], summary, label:has(input:not([type="text"], [type="search"], [type="datetime-local"]))):not(:disabled) {
+    cursor: pointer;
+}
+
+.sst :where(button:disabled) {
+    cursor: not-allowed;
+}
+
+.sst .sst-bar {
+    cursor: default;
+}
+
+/* ---------- hero: the same layout while loading and after ---------- */
+.sst .sst-hero-main {
+    flex: 1 1 20rem;
+}
+
+.sst .sst-hero-actions {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.sst .sst-countdown {
+    min-inline-size: 7.5rem;
+    text-align: end;
+}
+
+/* ---------- tablet ---------- */
+@media (max-width: 991.98px) {
+    .sst .sst-hero {
+        padding: 1.25rem 1.35rem;
+    }
+
+    .sst .sst-hero-actions {
+        flex: 1 1 100%;
+        justify-content: flex-start;
+    }
+
+    .sst .sst-countdown {
+        order: 10;
+        min-inline-size: 0;
+        margin-inline-start: auto;
+    }
+
+    .sst .sst-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sst .sst-toolbar > .sst-segmented {
+        overflow-x: auto;
+        max-inline-size: 100%;
+        scrollbar-width: none;
+    }
+
+    .sst .sst-search {
+        max-inline-size: none;
+    }
+
+    .sst .sst-legend {
+        flex: 1 1 100%;
+        margin-inline-start: 0;
+    }
+}
+
+/* ---------- phone ---------- */
+@media (max-width: 575.98px) {
+    .sst .sst-hero {
+        gap: .9rem;
+        padding: 1rem;
+    }
+
+    .sst .sst-hero-icon {
+        inline-size: 2.6rem;
+        block-size: 2.6rem;
+        font-size: 1.05rem;
+    }
+
+    .sst .sst-hero-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .5rem;
+    }
+
+    .sst .sst-hero-actions .sst-refresh {
+        justify-content: center;
+        min-block-size: 2.5rem;
+    }
+
+    .sst .sst-hero-actions .sst-refresh span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .sst .sst-countdown {
+        grid-column: 1 / -1;
+        order: 10;
+        text-align: center;
+    }
+
+    .sst .sst-kpis {
+        gap: .6rem;
+    }
+
+    .sst .sst-kpi {
+        padding: .75rem .85rem;
+    }
+
+    .sst .sst-kpi-value {
+        font-size: 1.25rem;
+    }
+
+    .sst .sst-toolbar > .sst-segmented,
+    .sst .sst-search {
+        flex: 1 1 100%;
+    }
+
+    .sst .sst-segment {
+        flex: 1 0 auto;
+        justify-content: center;
+        padding-inline: .7rem;
+    }
+
+    .sst .sst-group-head {
+        flex-wrap: wrap;
+        padding: .75rem 1rem;
+    }
+
+    .sst .sst-group-summary {
+        margin-inline-start: auto;
+    }
+
+    .sst .sst-component-head {
+        flex-wrap: wrap;
+        row-gap: .25rem;
+    }
+
+    .sst .sst-component-name {
+        flex: 1 1 60%;
+    }
+
+    .sst .sst-component-uptime {
+        order: 5;
+        flex: 1 1 100%;
+        padding-inline-start: 1.1rem;
+    }
+
+    .sst .sst-panel-head,
+    .sst .sst-panel-body {
+        padding-inline: 1rem;
+    }
+
+    .sst .sst-incident-head {
+        row-gap: .25rem;
+    }
+
+    /* The detail dialog fills the screen. */
+    dialog.sst-dialog {
+        inline-size: 100vw;
+        max-block-size: 100dvh;
+        block-size: 100dvh;
+        border-radius: 0;
+    }
+
+    dialog.sst-dialog > div {
+        max-block-size: 100dvh;
+        block-size: 100dvh;
+    }
+
+    .sst-toasts {
+        inset-inline: 1rem;
+        align-items: stretch;
+    }
+}
+
+/* Touch screens: bigger tap targets. */
+@media (pointer: coarse) {
+    .sst .sst-component-menu {
+        inline-size: 2.25rem;
+        block-size: 2.25rem;
+    }
+
+    .sst .sst-segment {
+        min-block-size: 2.25rem;
     }
 }

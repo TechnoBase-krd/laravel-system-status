@@ -43,7 +43,9 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Technobase\\SystemStatus\\Tests\\": "tests/"
+            "Technobase\\SystemStatus\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/",
+            "Workbench\\Database\\Seeders\\": "workbench/database/seeders/"
         },
         "files": [
             "tests/helpers.php"
@@ -59,7 +61,12 @@
     "scripts": {
         "test": "pest",
         "lint": "pint --test --preset laravel src config routes lang database tests",
-        "format": "pint --preset laravel src config routes lang database tests"
+        "format": "pint --preset laravel src config routes lang database tests",
+        "serve": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php vendor/bin/testbench workbench:build --ansi",
+            "@php vendor/bin/testbench serve --ansi"
+        ]
     },
     "config": {
         "sort-packages": true,

@@ -158,7 +158,7 @@ count as a failure.
 | Scheduler | `php artisan schedule:work` or a cron entry running `schedule:run` every minute |
 | `spatie/laravel-health` | installed automatically; used for the database, Redis, cache and Horizon checks |
 | Layout | none required: without a backoffice layout the page renders as its own full HTML page (see [Layout](#layout)) |
-| Front end | jQuery, the Bootstrap 4 modal plugin and Font Awesome 5 or 6; the standalone page loads them itself |
+| Front end | Font Awesome 5 or 6 (the standalone page loads it). No jQuery or Bootstrap: the page script is plain JavaScript and the dialogs and forms use Tailwind from a CDN (`tailwind_cdn`) with prefixed `tw:` classes and no global reset, so your layout's own styles are not touched |
 
 Optional:
 
@@ -321,7 +321,8 @@ All options live in `config/system-status.php`.
 | `access.manage_gate` | `null` | a Gate ability for posting incidents, updates and postmortems and for scheduling maintenance; `null` = everyone who can open the page |
 | `layout` | `layouts.app` | Blade layout the page extends; `'standalone'` (or `null`, or a view that does not exist) = the package's own full page |
 | `stacks.styles` / `.modals` / `.scripts` | `styles` / `modals` / `scripts` | stack names in that layout |
-| `standalone.css` / `.js` | Bootstrap 4.6, Font Awesome 6, jQuery 3.7 from a CDN | assets of the standalone page; point them at local files for an offline server or a strict CSP |
+| `standalone.css` / `.js` | Font Awesome 6 from a CDN / none | assets of the standalone page; point them at local files for an offline server or a strict CSP |
+| `tailwind_cdn` | `@tailwindcss/browser@4.3.3` on jsDelivr | the Tailwind script that styles the dialogs, slide-over panels and forms; point it at a local copy for an offline server or a strict CSP |
 | `standalone.rtl_locales` | `ar`, `ku`, `ckb`, `fa`, `he`, `ur` | locales the standalone page shows right to left |
 | `standalone.brand` | `TechnoBase` | name in the standalone page's top bar, browser title and description line |
 | `standalone.back_url` | `null` (`/`) | where the back button goes when there is no previous page of the application |
@@ -867,10 +868,10 @@ The page works in any Laravel application, with or without a backoffice:
 
 - **Inside your backoffice** (sidebar, header, your theme): set `layout` to your layout view and
   `stacks` to its stack names. The layout needs `@yield('title')`, `@yield('content')`, the
-  three stacks, and jQuery, the Bootstrap 4 modal plugin and Font Awesome.
+  three stacks, and Font Awesome. Nothing else: no jQuery or Bootstrap.
 - **As its own page**: set `layout` to `'standalone'`. The package renders a complete HTML
-  page (`system-status::layouts.standalone`) that loads Bootstrap, jQuery and Font Awesome
-  itself (`standalone.css` / `standalone.js`), follows the locale's direction (RTL for Arabic
+  page (`system-status::layouts.standalone`) that loads Font Awesome itself
+  (`standalone.css` / `standalone.js`), follows the locale's direction (RTL for Arabic
   and Kurdish) and needs nothing from the application. Its top bar has a back button (to the
   previous page, or `standalone.back_url`) and the `standalone.brand` name.
 
@@ -1065,6 +1066,7 @@ The tests use [Pest](https://pestphp.com) on Orchestra Testbench.
 composer install
 composer test     # Pest
 composer lint     # Pint (laravel preset)
+composer serve    # demo app with sample data: open http://127.0.0.1:8000/demo-login (?locale=ar for RTL)
 ```
 
 They run on in-memory SQLite by default. To run them against MySQL or PostgreSQL, put the

@@ -40,7 +40,7 @@ return [
         'manage_gate' => null,
     ],
     // A Blade layout of the application with @yield('title'), @yield('content') and the stacks
-    // below, plus jQuery, the Bootstrap 4 modal plugin and Font Awesome. 'standalone' (or null)
+    // below, plus Font Awesome (5 or 6). No jQuery or Bootstrap is needed. 'standalone' (or null)
     // uses the package's own full page instead; so does a layout view that does not exist.
     'layout' => 'layouts.app',
     // Stack names the layout renders; the page pushes its CSS, modal and script into them.
@@ -54,13 +54,9 @@ return [
     // strict Content-Security-Policy.
     'standalone' => [
         'css' => [
-            'https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css',
             'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css',
         ],
-        'js' => [
-            'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js',
-            'https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js',
-        ],
+        'js' => [],
         // Locales shown right to left.
         'rtl_locales' => ['ar', 'ku', 'ckb', 'fa', 'he', 'ur'],
         // Name in the top bar and the browser title.
@@ -69,6 +65,11 @@ return [
         // (null = the home page, '/').
         'back_url' => null,
     ],
+
+    // The Tailwind CDN script that styles the page's dialogs, panels and forms (prefixed tw:*
+    // classes, no global reset, so the host layout is not touched). Point it at a local copy for
+    // an offline server or a strict Content-Security-Policy.
+    'tailwind_cdn' => 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3/dist/index.global.js',
 
     // Absolute path of a CSS file added after the package styles, for branding. The page uses
     // --sst-* variables on .sst (e.g. .sst { --sst-accent: #0f766e; }).

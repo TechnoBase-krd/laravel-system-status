@@ -30,7 +30,7 @@ namespace `Technobase\SystemStatus`. Public on Packagist (MIT); used by Khatun-E
 | `src/Pulse/SystemStatusCard.php` | Laravel Pulse card, registered only when Pulse and Livewire are installed |
 | `config/system-status.php` | every option, documented inline |
 | `database/migrations/` | six migrations: the original `status_*` tables plus maintenance windows, incident updates, latency columns, `affected_by`, `status_monthly` |
-| `resources/views/index.blade.php` | the page (jQuery, Bootstrap modal, Font Awesome) with the incident, update, postmortem and maintenance forms; extends the `$layout` the controller resolves |
+| `resources/views/index.blade.php` + `partials/` | the page (plain JS, Font Awesome; `partials/detail` dialog, `partials/panels` slide-over forms and ⋯ menu, `partials/script`, `partials/tailwind` = CDN Tailwind with `tw:` prefix, important utilities and no preflight); extends the `$layout` the controller resolves. Tailwind classes always use the `tw:` prefix; never add jQuery or Bootstrap |
 | `resources/views/layouts/standalone.blade.php` | the package's own full HTML page, used for `layout` = `'standalone'` / `null` or a missing layout view |
 | `resources/views/report.blade.php` | the monthly uptime report (page, email attachment, PDF source) |
 | `resources/views/pulse/` | the Pulse card view |
@@ -86,9 +86,9 @@ Every change comes with tests. Before pushing:
    `php artisan status:check`, and open the page as a Super Admin, once with the application's
    layout and once with `'layout' => 'standalone'`. Switch the application back to the
    Packagist version afterwards.
-4. Screenshots: a throwaway Laravel app with the package, a Bootstrap 4 + jQuery + Font Awesome
-   layout and sample rows in the `status_*` tables; capture with headless Chrome at 1440 px
-   (desktop) and 390 px (phone).
+4. Screenshots: `composer serve` (Testbench demo in `workbench/` with sample data), open
+   `/demo-login` (`?locale=ar` for RTL) and capture with headless Chrome at 1440 px (desktop),
+   820 px (tablet) and 390 px (phone).
 
 ## Releasing
 
