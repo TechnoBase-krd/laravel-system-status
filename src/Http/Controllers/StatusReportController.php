@@ -34,12 +34,16 @@ class StatusReportController extends Controller
                 : abort(404),
             default => response()->view('system-status::report', [
                 'report' => $report,
+                // The page's look: its stylesheet and the application's branding CSS.
+                'styles' => (string) file_get_contents(dirname(__DIR__, 3).'/resources/css/system-status.css'),
+                'extraStyles' => filled($extra = config('system-status.extra_css')) && is_file($extra) ? (string) file_get_contents($extra) : null,
                 'links' => [
                     'previous' => route('system_status.report', ['month' => $start->copy()->subMonth()->format('Y-m'), 'format' => 'html']),
                     'next' => $start->copy()->addMonth()->lte(now()) ? route('system_status.report', ['month' => $start->copy()->addMonth()->format('Y-m'), 'format' => 'html']) : null,
                     'csv' => route('system_status.report', ['month' => $month, 'format' => 'csv']),
                     'pdf' => GetStatusReportAction::pdfAvailable() ? route('system_status.report', ['month' => $month, 'format' => 'pdf']) : null,
                     'back' => route('system_status.index'),
+                    'template' => route('system_status.report', ['month' => '0000-00', 'format' => 'html']),
                 ],
             ]),
         };

@@ -343,7 +343,12 @@
             var heroTitle = document.getElementById('sstHeroTitle');
             var barText = document.getElementById('sstBarText');
 
+            // Pages without a live status (the monthly report) hide the status pill.
             if (!hero || !heroTitle) {
+                var live = document.querySelector('.sst-live');
+                if (live) {
+                    live.style.display = 'none';
+                }
                 return;
             }
 

@@ -25,12 +25,13 @@ class GetStatusReportAction
         $end = $start->copy()->addMonth();
 
         $rows = DB::table('status_monthly')->where('month', $month)->get()->keyBy('component');
-        $incidents = StatusIncident::query()
+        $incidentRows = StatusIncident::query()
             ->where('started_at', '>=', $start)
             ->where('started_at', '<', $end)
-            ->selectRaw('component, COUNT(*) AS total')
-            ->groupBy('component')
-            ->pluck('total', 'component');
+            ->orderBy('started_at')
+            ->get();
+        $incidents = $incidentRows->countBy('component');
+        $daily = $this->dailyLevels($start, $end);
 
         $components = [];
 
@@ -57,6 +58,7 @@ class GetStatusReportAction
                     'maintenance_minutes' => $maintenance,
                     'checked_minutes' => $runs,
                     'incidents' => (int) ($incidents[$component] ?? 0),
+                    'days' => $daily[$component] ?? $this->emptyDays($start, $end),
                 ];
             }
         }
@@ -70,8 +72,74 @@ class GetStatusReportAction
             'app' => config('app.name'),
             'average_uptime' => $measured ? round(array_sum(array_column($measured, 'uptime')) / count($measured), 3) : null,
             'missed' => count(array_filter($components, fn ($c) => $c['met'] === false)),
+            'with_target' => count(array_filter($components, fn ($c) => $c['met'] !== null)),
+            'outage_minutes' => array_sum(array_column($components, 'outage_minutes')),
+            'maintenance_minutes' => array_sum(array_column($components, 'maintenance_minutes')),
+            'incident_count' => $incidentRows->count(),
             'components' => $components,
+            'incidents' => $incidentRows->map(fn (StatusIncident $incident) => [
+                'component' => $this->registry->label($incident->component),
+                'severity' => $incident->severity->value,
+                'severity_label' => $incident->severity->label(),
+                'title' => $incident->title ?: $incident->message,
+                'source' => $incident->source,
+                'started_at' => $incident->started_at->format('Y-m-d H:i'),
+                'resolved_at' => $incident->resolved_at?->format('Y-m-d H:i'),
+                'duration_minutes' => max(1, (int) $incident->started_at->diffInMinutes($incident->resolved_at ?? now())),
+                'postmortem' => $incident->postmortem,
+                'affected_by' => $incident->affected_by ? $this->registry->label($incident->affected_by) : null,
+            ])->values()->all(),
         ];
+    }
+
+    /**
+     * A level per day of the month for each component, from status_daily (kept 90 days by
+     * default; older days show as "none").
+     *
+     * @return array<string, array<int, array{day: int, level: string}>>
+     */
+    private function dailyLevels(Carbon $start, Carbon $end): array
+    {
+        $rows = DB::table('status_daily')
+            ->where('day', '>=', $start->toDateString())
+            ->where('day', '<', $end->toDateString())
+            ->get()
+            ->groupBy('component');
+
+        $levels = [];
+        foreach ($rows as $component => $days) {
+            $byDay = $days->keyBy(fn ($row) => Carbon::parse($row->day)->toDateString());
+            $levels[$component] = $this->emptyDays($start, $end, function (string $date) use ($byDay) {
+                $row = $byDay->get($date);
+
+                return match (true) {
+                    ! $row || (int) $row->runs === 0 => 'none',
+                    (int) $row->outage_runs >= 30 => 'major',
+                    (int) $row->outage_runs > 0 => 'partial',
+                    (int) $row->degraded_runs > 0 => 'degraded',
+                    (int) ($row->maintenance_runs ?? 0) > 0 => 'maintenance',
+                    default => 'ok',
+                };
+            });
+        }
+
+        return $levels;
+    }
+
+    /**
+     * @return array<int, array{day: int, level: string}>
+     */
+    private function emptyDays(Carbon $start, Carbon $end, ?callable $level = null): array
+    {
+        $days = [];
+        for ($day = $start->copy(); $day->lt($end); $day->addDay()) {
+            $days[] = [
+                'day' => $day->day,
+                'level' => $day->isFuture() && ! $day->isToday() ? 'future' : ($level ? $level($day->toDateString()) : 'none'),
+            ];
+        }
+
+        return $days;
     }
 
     public function target(string $component): ?float
@@ -105,9 +173,9 @@ class GetStatusReportAction
         return $csv;
     }
 
-    public function html(array $report): string
+    public function html(array $report, bool $pdf = false): string
     {
-        return view('system-status::report', ['report' => $report])->render();
+        return view('system-status::report', ['report' => $report, 'pdf' => $pdf])->render();
     }
 
     public static function pdfAvailable(): bool
@@ -117,6 +185,6 @@ class GetStatusReportAction
 
     public function pdf(array $report): string
     {
-        return Pdf::loadHTML($this->html($report))->output();
+        return Pdf::loadHTML($this->html($report, true))->output();
     }
 }

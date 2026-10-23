@@ -50,6 +50,10 @@
   Tailwind from a CDN (`tailwind_cdn`, prefixed `tw:` classes, no global reset). The standalone
   page now loads only Font Awesome. Better tablet and phone layouts, and pointer cursors on
   everything clickable.
+- The monthly report has the status page's look and branding (brand bar, accent-coloured hero,
+  KPI cards, panels, `extra_css`): a day-by-day strip per component, uptime bars against the
+  SLA target, the month's incidents with their cause & fix, a month picker, CSV / PDF / print.
+  `reports.accent` sets the PDF header colour.
 - `composer serve`: a Testbench demo app with sample data (`workbench/`).
 
 **Upgrade notes**

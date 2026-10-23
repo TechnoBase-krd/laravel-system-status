@@ -359,6 +359,7 @@ All options live in `config/system-status.php`.
 | `sla.default_target` | `null` | monthly uptime target in % for components without their own `sla`; `null` = no target |
 | `reports.mail_to` | `env('SYSTEM_STATUS_REPORT_MAIL_TO')`, comma-separated | email last month's report on the 1st at 08:00 to these addresses |
 | `reports.format` | `csv` | format of the emailed report: `csv`, `html` or `pdf` |
+| `reports.accent` | `#6F2E8F` | header colour of the PDF report (the web report follows the page's `--sst-accent` and your `extra_css`) |
 | `retention_days` | checks 7, route_buckets 7, daily 90, incidents 90 | what `status:prune` keeps (`incidents` also covers incident updates and ended maintenance windows) |
 | `queues` | `[['connection' => null, 'queue' => 'default']]` | queues that get a heartbeat job every run |
 | `ignore_uris` | tools, health checks, this page | URIs that are never counted |

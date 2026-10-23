@@ -162,6 +162,8 @@ return [
         'mail_to' => array_filter(explode(',', (string) env('SYSTEM_STATUS_REPORT_MAIL_TO', ''))),
         // csv, html or pdf (pdf needs barryvdh/laravel-dompdf).
         'format' => 'csv',
+        // Brand colour of the PDF header (the web report follows the page's --sst-accent).
+        'accent' => '#6F2E8F',
     ],
 
     'retention_days' => [
