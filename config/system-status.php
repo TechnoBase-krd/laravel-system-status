@@ -85,6 +85,8 @@ return [
     // Redis connection for the per-minute traffic counters (null = the default connection).
     'redis_connection' => null,
 
+    // Global thresholds. A component can override any of them with its own
+    // 'thresholds' => ['degraded_error_rate' => 2, 'latency_degraded_p95_ms' => 800, ...].
     'thresholds' => [
         'window_minutes' => 15,
         'min_requests' => 20,
@@ -93,6 +95,10 @@ return [
         'outage_error_rate' => 25,
         'slow_request_ms' => 2000,
         'slow_probe_ms' => 3000,
+        // Degraded / major outage when the p95 response time of a component's routes over the
+        // window is above this many ms (needs min_requests). null = slowness alone never counts.
+        'latency_degraded_p95_ms' => null,
+        'latency_outage_p95_ms' => null,
         // A component changes status only after this many runs in a row agree.
         'confirm_runs' => 2,
         // Scheduler and queue heartbeats older than this are an outage.

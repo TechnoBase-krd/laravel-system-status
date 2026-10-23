@@ -19,6 +19,7 @@ use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Probes\Probe;
 use Technobase\SystemStatus\Probes\ProbeResult;
+use Technobase\SystemStatus\Support\LatencyHistogram;
 use Technobase\SystemStatus\Support\StatusAlerter;
 use Technobase\SystemStatus\Support\StatusDuration;
 use Technobase\SystemStatus\Support\StatusMetrics;
@@ -187,7 +188,7 @@ class StatusService
     /**
      * Requests and errors per component over the window, split into routes and signals.
      *
-     * @return array<string, array{routes?: array{requests: int, errors: int}, signal?: array{requests: int, errors: int}}>
+     * @return array<string, array{routes?: array{requests: int, errors: int, latency: array<int, int>}, signal?: array{requests: int, errors: int}}>
      */
     private function traffic(CarbonInterface $now): array
     {
@@ -196,7 +197,7 @@ class StatusService
         $rows = DB::table('status_route_buckets')
             ->where('bucket_at', '>=', $since)
             ->selectRaw("component, CASE WHEN route = '".StatusMetrics::SIGNAL_ROUTE."' THEN 1 ELSE 0 END AS is_signal")
-            ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors')
+            ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors, '.LatencyHistogram::sumSelect())
             ->groupByRaw('component, is_signal')
             ->get();
 
@@ -205,6 +206,7 @@ class StatusService
             $traffic[$row->component][(int) $row->is_signal === 1 ? 'signal' : 'routes'] = [
                 'requests' => (int) $row->requests,
                 'errors' => (int) $row->errors,
+                'latency' => LatencyHistogram::fromRow($row),
             ];
         }
 
@@ -235,16 +237,19 @@ class StatusService
 
         if (isset($traffic['routes'])) {
             $sources[] = $this->rateSource(
+                $component,
                 $traffic['routes'],
-                (int) config('system-status.thresholds.min_requests', 20),
+                (int) $this->registry->threshold($component, 'min_requests', 20),
                 ':errors of :requests requests failed (5xx) in the last :minutes min',
             );
+            $sources[] = $this->latencySource($component, $traffic['routes']);
         }
 
         if (isset($traffic['signal'])) {
             $source = $this->rateSource(
+                $component,
                 $traffic['signal'],
-                (int) config('system-status.thresholds.min_signals', 3),
+                (int) $this->registry->threshold($component, 'min_signals', 3),
                 ':errors of :requests calls failed in the last :minutes min',
             );
 
@@ -291,7 +296,7 @@ class StatusService
     /**
      * @return array{0: ComponentStatus, 1: ?string}
      */
-    private function rateSource(array $counts, int $minimum, string $template): array
+    private function rateSource(string $component, array $counts, int $minimum, string $template): array
     {
         if ($counts['requests'] < $minimum || $counts['errors'] === 0) {
             return [ComponentStatus::Operational, null];
@@ -305,8 +310,35 @@ class StatusService
         ]).' ('.round($rate).'%)';
 
         return match (true) {
-            $rate >= (float) config('system-status.thresholds.outage_error_rate', 25) => [ComponentStatus::MajorOutage, $message],
-            $rate >= (float) config('system-status.thresholds.degraded_error_rate', 5) => [ComponentStatus::Degraded, $message],
+            $rate >= (float) $this->registry->threshold($component, 'outage_error_rate', 25) => [ComponentStatus::MajorOutage, $message],
+            $rate >= (float) $this->registry->threshold($component, 'degraded_error_rate', 5) => [ComponentStatus::Degraded, $message],
+            default => [ComponentStatus::Operational, null],
+        };
+    }
+
+    /**
+     * Slowness without errors: the p95 response time over the window against
+     * latency_degraded_p95_ms / latency_outage_p95_ms (both off by default).
+     *
+     * @return array{0: ComponentStatus, 1: ?string}
+     */
+    private function latencySource(string $component, array $counts): array
+    {
+        $degradedMs = $this->registry->threshold($component, 'latency_degraded_p95_ms');
+        $outageMs = $this->registry->threshold($component, 'latency_outage_p95_ms');
+
+        if ((! $degradedMs && ! $outageMs)
+            || $counts['requests'] < (int) $this->registry->threshold($component, 'min_requests', 20)
+            || ($p95 = LatencyHistogram::percentile($counts['latency'] ?? [], 95)) === null) {
+            return [ComponentStatus::Operational, null];
+        }
+
+        $minutes = (int) config('system-status.thresholds.window_minutes', 15);
+        $message = fn (int $limit) => "p95 response time {$p95} ms in the last {$minutes} min (limit {$limit} ms)";
+
+        return match (true) {
+            $outageMs && $p95 > (int) $outageMs => [ComponentStatus::MajorOutage, $message((int) $outageMs)],
+            $degradedMs && $p95 > (int) $degradedMs => [ComponentStatus::Degraded, $message((int) $degradedMs)],
             default => [ComponentStatus::Operational, null],
         };
     }
@@ -367,7 +399,7 @@ class StatusService
             $state->candidate_runs = 1;
         }
 
-        if ($state->candidate_runs >= max(1, (int) config('system-status.thresholds.confirm_runs', 2))) {
+        if ($state->candidate_runs >= max(1, (int) $this->registry->threshold($component, 'confirm_runs', 2))) {
             $previous = $state->status;
             $state->status = $observed;
             $state->message = $message;

@@ -960,6 +960,34 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     color: var(--sst-major);
 }
 
+.sst .sst-latency-chart {
+    position: relative;
+}
+
+.sst .sst-latency-p95 {
+    background: color-mix(in oklab, var(--sst-maintenance) 45%, var(--sst-surface));
+}
+
+.sst .sst-latency-p95[data-over="1"] {
+    background: color-mix(in oklab, var(--sst-degraded) 70%, var(--sst-surface));
+}
+
+.sst .sst-latency-p50 {
+    inline-size: 100%;
+    background: var(--sst-maintenance);
+}
+
+.sst .sst-chart-limit {
+    position: absolute;
+    inset-inline: 0;
+    block-size: 0;
+    border-block-start: 2px dashed var(--sst-degraded);
+    pointer-events: none;
+}
+
+.sst [data-level="p95"] { --sst-tone: color-mix(in oklab, var(--sst-maintenance) 45%, var(--sst-surface)); }
+.sst [data-level="p50"] { --sst-tone: var(--sst-maintenance); }
+
 /* ---------- status tones (shared; last so they win over each element's default tone) ---------- */
 .sst [data-status="operational"],
 .sst [data-level="ok"],

@@ -411,6 +411,10 @@
                             <span class="sst-kpi-label">@lang('system-status::status.status_avg_response')</span>
                             <strong class="sst-kpi-value" id="sstDetailAvg">—</strong>
                         </div>
+                        <div class="sst-kpi">
+                            <span class="sst-kpi-label">@lang('system-status::status.status_p95_response')</span>
+                            <strong class="sst-kpi-value" id="sstDetailP95">—</strong>
+                        </div>
                     </div>
 
                     <section class="sst-panel">
@@ -423,6 +427,23 @@
                         </header>
                         <div class="sst-panel-body">
                             <div class="sst-chart" id="sstDetailChart"></div>
+                            <div class="sst-bars-legend">
+                                <span>@lang('system-status::status.status_hours_ago')</span>
+                                <span>@lang('system-status::status.status_now')</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="sst-panel">
+                        <header class="sst-panel-head">
+                            <h3 class="sst-panel-title">@lang('system-status::status.status_response_time_24h')</h3>
+                            <ul class="sst-legend list-unstyled mb-0">
+                                <li><span class="sst-swatch" data-level="p95"></span>p95</li>
+                                <li><span class="sst-swatch" data-level="p50"></span>p50</li>
+                            </ul>
+                        </header>
+                        <div class="sst-panel-body">
+                            <div class="sst-chart sst-latency-chart" id="sstDetailLatency"></div>
                             <div class="sst-bars-legend">
                                 <span>@lang('system-status::status.status_hours_ago')</span>
                                 <span>@lang('system-status::status.status_now')</span>
@@ -446,6 +467,7 @@
                                     <th class="sst-num">@lang('system-status::status.status_error_rate')</th>
                                     <th class="sst-num">@lang('system-status::status.status_slow')</th>
                                     <th class="sst-num">@lang('system-status::status.status_avg_ms')</th>
+                                    <th class="sst-num">p95 ms</th>
                                 </tr>
                                 </thead>
                                 <tbody id="sstDetailRoutes"></tbody>
@@ -1180,8 +1202,47 @@
                 container.replaceChildren(fragment);
             }
 
+            function renderLatency(container, hourly, limit) {
+                const max = Math.max.apply(null, hourly.map(function (h) { return h.p95 || 0; }).concat([limit || 0]));
+                if (!hourly.some(function (h) { return h.p95; })) {
+                    const empty = document.createElement('p');
+                    empty.className = 'sst-muted mb-0 text-center py-4';
+                    empty.textContent = i18n.noTraffic;
+                    container.replaceChildren(empty);
+                    return;
+                }
+
+                const fragment = document.createDocumentFragment();
+                hourly.forEach(function (hour) {
+                    const column = document.createElement('span');
+                    column.className = 'sst-chart-col sst-bar';
+                    column._sstLines = hour.p95 ? [hour.hour, 'p95: ' + numberFormat.format(hour.p95) + ' ms', 'p50: ' + numberFormat.format(hour.p50) + ' ms'] : [hour.hour, i18n.noData];
+
+                    const p95 = document.createElement('span');
+                    p95.className = 'sst-chart-total sst-latency-p95';
+                    p95.dataset.over = limit && hour.p95 > limit ? '1' : '0';
+                    p95.style.blockSize = (hour.p95 ? Math.max(3, hour.p95 / max * 100) : 0) + '%';
+
+                    const p50 = document.createElement('span');
+                    p50.className = 'sst-latency-p50';
+                    p50.style.blockSize = (hour.p95 ? Math.min(100, (hour.p50 || 0) / hour.p95 * 100) : 0) + '%';
+
+                    p95.appendChild(p50);
+                    column.appendChild(p95);
+                    fragment.appendChild(column);
+                });
+
+                if (limit) {
+                    const line = document.createElement('span');
+                    line.className = 'sst-chart-limit';
+                    line.style.insetBlockEnd = (limit / max * 100) + '%';
+                    fragment.appendChild(line);
+                }
+                container.replaceChildren(fragment);
+            }
+
             function resetDetail() {
-                ['sstDetailTitle', 'sstDetailRequests', 'sstDetailErrors', 'sstDetailRate', 'sstDetailAvg'].forEach(function (id) {
+                ['sstDetailTitle', 'sstDetailRequests', 'sstDetailErrors', 'sstDetailRate', 'sstDetailAvg', 'sstDetailP95'].forEach(function (id) {
                     document.getElementById(id).textContent = id === 'sstDetailTitle' ? '' : '—';
                 });
                 document.getElementById('sstDetailPill').textContent = '';
@@ -1190,9 +1251,11 @@
                 ['sstDetailRoutes', 'sstDetailChecks', 'sstDetailIncidents'].forEach(function (id) {
                     document.getElementById(id).replaceChildren();
                 });
-                const chart = document.getElementById('sstDetailChart');
-                chart.replaceChildren();
-                chart.classList.add('is-loading');
+                ['sstDetailChart', 'sstDetailLatency'].forEach(function (id) {
+                    const chart = document.getElementById(id);
+                    chart.replaceChildren();
+                    chart.classList.add('is-loading');
+                });
             }
 
             function openDetail(component) {
@@ -1224,6 +1287,12 @@
                         chart.classList.remove('is-loading');
                         renderChart(chart, data.hourly);
 
+                        const latency = document.getElementById('sstDetailLatency');
+                        latency.classList.remove('is-loading');
+                        renderLatency(latency, data.hourly, data.latency ? data.latency.degraded_p95_ms : null);
+                        document.getElementById('sstDetailP95').textContent = data.latency && data.latency.p95 !== null
+                            ? numberFormat.format(data.latency.p95) + ' ms' : '—';
+
                         const signalBox = document.getElementById('sstDetailSignal');
                         if (data.signal.calls > 0 || data.signal.last_failure) {
                             let text = fill(i18n.signals, {failures: data.signal.failures, calls: data.signal.calls});
@@ -1237,10 +1306,10 @@
 
                         const routes = document.getElementById('sstDetailRoutes');
                         if (!data.routes.length) {
-                            routes.appendChild(emptyRow(6, i18n.noTraffic));
+                            routes.appendChild(emptyRow(7, i18n.noTraffic));
                         }
                         data.routes.forEach(function (route) {
-                            const tr = row([route.route, numberFormat.format(route.requests), numberFormat.format(route.errors), route.error_rate + '%', route.slow, route.avg_ms], 1);
+                            const tr = row([route.route, numberFormat.format(route.requests), numberFormat.format(route.errors), route.error_rate + '%', route.slow, route.avg_ms, route.p95_ms === null || route.p95_ms === undefined ? '—' : route.p95_ms], 1);
                             tr.children[0].className = 'sst-route';
                             if (route.errors > 0) {
                                 tr.classList.add('has-errors');
@@ -1266,6 +1335,7 @@
                     })
                     .fail(function () {
                         document.getElementById('sstDetailChart').classList.remove('is-loading');
+                        document.getElementById('sstDetailLatency').classList.remove('is-loading');
                         const message = document.getElementById('sstDetailMessage');
                         message.textContent = i18n.loadFailed;
                         message.hidden = false;

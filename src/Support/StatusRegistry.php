@@ -39,6 +39,17 @@ class StatusRegistry
         return array_key_exists($component, $this->components());
     }
 
+    /**
+     * A threshold for one component: its own 'thresholds' => [...] entry, else the global
+     * system-status.thresholds value, else $default.
+     */
+    public function threshold(string $component, string $key, mixed $default = null): mixed
+    {
+        $own = $this->components()[$component]['definition']['thresholds'] ?? [];
+
+        return array_key_exists($key, $own) ? $own[$key] : config('system-status.thresholds.'.$key, $default);
+    }
+
     public function label(string $component, ?string $locale = null): string
     {
         return $this->translated('status_component_'.$component, $component, $locale);
