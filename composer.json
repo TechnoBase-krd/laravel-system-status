@@ -3,7 +3,13 @@
     "description": "A status page for Laravel backoffices: read-only probes, real per-route traffic, signals, automatic incidents, Telegram alerts and 1h / 24h / 7d / 90d history.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["laravel", "status-page", "monitoring", "uptime", "incidents"],
+    "keywords": [
+        "laravel",
+        "status-page",
+        "monitoring",
+        "uptime",
+        "incidents"
+    ],
     "authors": [
         {
             "name": "TechnoBase",
@@ -18,6 +24,12 @@
         "illuminate/console": "^12.0|^13.0",
         "spatie/laravel-health": "^1.29"
     },
+    "require-dev": {
+        "laravel/pint": "^1.18",
+        "orchestra/testbench": "^10.0|^11.0",
+        "pestphp/pest": "^3.0|^4.0",
+        "pestphp/pest-plugin-laravel": "^3.0|^4.0"
+    },
     "suggest": {
         "laravel-notification-channels/telegram": "Sends status changes to a Telegram chat.",
         "spatie/laravel-permission": "Provides hasRole() for the page's role check."
@@ -27,6 +39,14 @@
             "Technobase\\SystemStatus\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "Technobase\\SystemStatus\\Tests\\": "tests/"
+        },
+        "files": [
+            "tests/helpers.php"
+        ]
+    },
     "extra": {
         "laravel": {
             "providers": [
@@ -34,8 +54,16 @@
             ]
         }
     },
+    "scripts": {
+        "test": "pest",
+        "lint": "pint --test --preset laravel src config routes lang database tests",
+        "format": "pint --preset laravel src config routes lang database tests"
+    },
     "config": {
-        "sort-packages": true
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
     },
     "minimum-stability": "stable",
     "prefer-stable": true
