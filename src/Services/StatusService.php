@@ -435,6 +435,9 @@ class StatusService
                 $changes[] = $component.': maintenance -> '.$observed->value;
                 $this->recordIncident($component, ComponentStatus::Operational, $observed, $message, $now);
                 $this->dispatchChange($component, ComponentStatus::Operational, $observed, $message, $now);
+            } else {
+                // An incident left open from before the window is over now.
+                $this->recordIncident($component, ComponentStatus::Operational, $observed, $message, $now);
             }
 
             return $state;
