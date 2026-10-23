@@ -43,6 +43,14 @@ class StatusService
     ) {}
 
     /**
+     * This run's failing components that depend on another failing component ('depends_on'),
+     * mapped to the root cause.
+     *
+     * @var array<string, string>
+     */
+    private array $affectedBy = [];
+
+    /**
      * @return array{flushed_minutes: int, probes_run: int, changes: array<int, string>}
      */
     public function run(): array
@@ -66,15 +74,24 @@ class StatusService
 
         $changes = [];
         $daily = [];
+        $evaluated = [];
 
         foreach ($this->registry->components() as $component => $entry) {
-            [$status, $message, $configured] = $this->evaluate(
+            $evaluated[$component] = $this->evaluate(
                 $component,
                 $entry['definition'],
                 $probeResults[$component] ?? [],
                 $traffic[$component] ?? [],
                 $manual[$component] ?? null,
             );
+        }
+
+        $this->affectedBy = $this->dependencyFailures($evaluated, $maintenance);
+
+        foreach ($evaluated as $component => [$status, $message, $configured]) {
+            if (isset($this->affectedBy[$component])) {
+                $message = trim('Affected by '.$this->registry->label($this->affectedBy[$component], 'en').($message ? ' — '.$message : ''));
+            }
 
             $state = isset($maintenance[$component])
                 ? $this->applyMaintenance($component, $maintenance[$component], $configured, $now)
@@ -84,7 +101,7 @@ class StatusService
 
         $this->addDaily($daily);
         $this->sendReminders($now, $maintenance);
-        $this->alerter->flush([], $this->registry);
+        $this->alerter->flush($this->affectedBy, $this->registry);
         $this->alerter->flappingEnded(function (string $component) {
             $status = StatusComponent::query()->where('component', $component)->value('status');
 
@@ -344,6 +361,46 @@ class StatusService
     }
 
     /**
+     * Failing components whose dependency ('depends_on') is failing too, mapped to the root
+     * cause: the first failing dependency up the chain that does not fail because of another.
+     *
+     * @param  array<string, array{0: ComponentStatus, 1: ?string, 2: bool}>  $evaluated
+     * @param  array<string, StatusMaintenance>  $maintenance
+     * @return array<string, string>
+     */
+    private function dependencyFailures(array $evaluated, array $maintenance): array
+    {
+        $components = $this->registry->components();
+        $failing = fn (string $c) => isset($evaluated[$c]) && ! isset($maintenance[$c]) && $evaluated[$c][0]->isProblem();
+        $direct = [];
+
+        foreach ($components as $component => $entry) {
+            if (! $failing($component)) {
+                continue;
+            }
+
+            foreach ((array) ($entry['definition']['depends_on'] ?? []) as $dependency) {
+                if ($dependency !== $component && $failing($dependency)) {
+                    $direct[$component] = $dependency;
+                    break;
+                }
+            }
+        }
+
+        $roots = [];
+        foreach ($direct as $component => $parent) {
+            $seen = [$component => true];
+            while (isset($direct[$parent]) && ! isset($seen[$parent])) {
+                $seen[$parent] = true;
+                $parent = $direct[$parent];
+            }
+            $roots[$component] = $parent;
+        }
+
+        return $roots;
+    }
+
+    /**
      * Confirms a status change once it has been seen `confirm_runs` runs in a row.
      */
     private function applyStatus(
@@ -361,6 +418,8 @@ class StatusService
 
         $state->configured = $configured;
         $state->checked_at = $now;
+        $wasAffectedBy = $state->affected_by;
+        $state->affected_by = $this->affectedBy[$component] ?? null;
 
         // Leaving a maintenance window: take the observed status at once, without confirmation.
         // A problem found right after the work opens an incident as usual.
@@ -386,6 +445,13 @@ class StatusService
             $state->candidate_runs = 0;
             $state->message = $message;
             $state->save();
+
+            // The dependency recovered but this component did not: now it is its own problem.
+            if ($wasAffectedBy && ! $state->affected_by && $observed->isProblem()) {
+                StatusIncident::query()->open()->where('component', $component)->update(['affected_by' => null]);
+                $name = $this->registry->label($component, 'en');
+                $this->alerter->change($component, trim("🟠 {$name}: still {$this->statusWords($observed)} after ".$this->registry->label($wasAffectedBy, 'en').' recovered. '.($message ?? '')), $name);
+            }
 
             return $state;
         }
@@ -577,7 +643,10 @@ class StatusService
             if ($open) {
                 $open->update(['resolved_at' => $now]);
                 $duration = StatusDuration::format((int) $open->started_at->diffInMinutes($now));
-                $this->alerter->change($component, "✅ {$name} recovered after {$duration}.", $name);
+                $text = "✅ {$name} recovered after {$duration}.";
+
+                // Its outage was reported as part of the dependency's: no separate recovery alert.
+                $open->affected_by ? Log::info('[system-status] '.$text) : $this->alerter->change($component, $text, $name, true);
             }
 
             return;
@@ -598,12 +667,18 @@ class StatusService
                 'severity' => $current,
                 'message' => $message,
                 'started_at' => $now,
+                'affected_by' => $this->affectedBy[$component] ?? null,
             ]);
         }
 
         $icon = $current === ComponentStatus::MajorOutage ? '🔴' : '🟠';
-        $label = $current === ComponentStatus::MajorOutage ? 'major outage' : 'degraded';
+        $label = $this->statusWords($current);
         $this->alerter->change($component, trim("{$icon} {$name}: {$label}. ".($message ?? '')), $name);
+    }
+
+    private function statusWords(ComponentStatus $status): string
+    {
+        return $status === ComponentStatus::MajorOutage ? 'major outage' : str_replace('_', ' ', $status->value);
     }
 
     /**

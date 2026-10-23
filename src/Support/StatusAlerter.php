@@ -25,7 +25,7 @@ class StatusAlerter
 
     private bool $batching = false;
 
-    /** @var array<int, array{component: ?string, text: string}> */
+    /** @var array<int, array{component: ?string, text: string, recovery: bool}> */
     private array $pending = [];
 
     /**
@@ -76,7 +76,7 @@ class StatusAlerter
         foreach ($pending as $index => $alert) {
             $text = $alert['text'];
             if (! empty($also[$index])) {
-                $text .= ' Also affected: '.implode(', ', $also[$index]).'.';
+                $text .= ($alert['recovery'] ? ' Also recovered: ' : ' Also affected: ').implode(', ', $also[$index]).'.';
             }
 
             $this->send($text);
@@ -86,14 +86,14 @@ class StatusAlerter
     /**
      * A confirmed status change of a component.
      */
-    public function change(string $component, string $text, ?string $label = null): void
+    public function change(string $component, string $text, ?string $label = null, bool $recovery = false): void
     {
         if ($this->flapping($component, $label ?? $component)) {
             return;
         }
 
         if ($this->batching) {
-            $this->pending[] = ['component' => $component, 'text' => $text];
+            $this->pending[] = ['component' => $component, 'text' => $text, 'recovery' => $recovery];
 
             return;
         }

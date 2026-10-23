@@ -19,6 +19,9 @@ use Technobase\SystemStatus\Probes\SpatieCheckProbe;
  *    second pass; the longest matching pattern wins). 5xx responses count as failures;
  *  - signal: success / failure reported from code with StatusSignal, for calls that cannot be
  *    probed without cost or side effects (OTP gateways, social login, paid AI APIs).
+ * Other per-component keys: 'thresholds' => [...] (overrides the global thresholds),
+ * 'depends_on' => ['database'] (when that component fails too, this one shows "Affected by
+ * Database" and its alert is folded into the database's), 'sla' => 99.9 (monthly target).
  * Display names are system-status::status.status_component_<key> and
  * system-status::status.status_group_<group>; add your own in
  * lang/vendor/system-status/<locale>/status.php.

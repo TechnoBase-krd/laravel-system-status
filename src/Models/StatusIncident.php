@@ -16,7 +16,7 @@ class StatusIncident extends Model
 
     protected $fillable = [
         'component', 'severity', 'message', 'started_at', 'resolved_at',
-        'title', 'source', 'state', 'postmortem', 'created_by', 'reminded_at',
+        'title', 'source', 'state', 'postmortem', 'created_by', 'reminded_at', 'affected_by',
     ];
 
     protected $attributes = [

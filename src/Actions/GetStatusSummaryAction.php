@@ -84,6 +84,8 @@ class GetStatusSummaryAction
                     'configured' => $configured,
                     'message' => $message,
                     'changed_at' => $state?->changed_at?->format('Y-m-d H:i'),
+                    'affected_by' => $state?->affected_by,
+                    'affected_by_label' => $state?->affected_by ? $this->registry->label($state->affected_by) : null,
                     'uptime' => $uptime,
                     'days' => $days,
                 ];
