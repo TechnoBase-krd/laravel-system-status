@@ -60,6 +60,11 @@
             toastMaintenanceEnded: @json(__('system-status::status.status_toast_maintenance_ended')),
             today: @json(__('system-status::status.status_today')),
             now: @json(__('system-status::status.status_now')),
+            deploy: @json(__('system-status::status.status_deploy', ['version' => ':version'])),
+            afterDeploy: @json(__('system-status::status.status_after_deploy', ['minutes' => ':minutes', 'version' => ':version'])),
+            lastDeploy: @json(__('system-status::status.status_last_deploy', ['version' => ':version', 'ago' => ':ago'])),
+            deployWorse: @json(__('system-status::status.status_deploy_worse', ['components' => ':components'])),
+            deployOk: @json(__('system-status::status.status_deploy_ok')),
             incidentsShown: @json(__('system-status::status.status_incidents_shown', ['shown' => ':shown', 'total' => ':total'])),
         };
         const numberFormat = new Intl.NumberFormat(document.documentElement.lang || undefined);
@@ -312,14 +317,14 @@
             return lines;
         }
 
-        on('mouseover', '.sst-bar', function (event) {
+        on('mouseover', '.sst-bar, .sst-deploy-marker', function (event) {
             // The lines are built on hover, not for every bar on every refresh.
             const lines = this._sstLines || (this._sstSlot && slotLines(this._sstSlot));
             if (lines && !this.contains(event.relatedTarget)) {
                 showTooltip(this, lines);
             }
         });
-        on('mouseout', '.sst-bar', function (event) {
+        on('mouseout', '.sst-bar, .sst-deploy-marker', function (event) {
             if (!this.contains(event.relatedTarget)) {
                 hideTooltip();
             }
@@ -329,7 +334,7 @@
         /* ---------- rendering ---------- */
         // Reuses the existing bars when the count is the same and only changes what differs.
         function renderBars(container, days) {
-            const bars = container.children;
+            const bars = container.querySelectorAll(':scope > .sst-bar');
             if (bars.length === days.length) {
                 days.forEach(function (day, index) {
                     const bar = bars[index];
@@ -349,7 +354,80 @@
                 bar._sstSlot = day;
                 fragment.appendChild(bar);
             });
+            // Keep the deploy lines that sit on top of the bars.
+            fragment.append.apply(fragment, Array.prototype.slice.call(container.querySelectorAll(':scope > .sst-deploy-marker')));
             container.replaceChildren(fragment);
+        }
+
+        /* ---------- deploys ---------- */
+        function deployLines(deploy) {
+            const lines = [fill(i18n.deploy, {version: deploy.label}), deploy.at + (deploy.deployed_by ? ' · ' + fill(i18n.by, {name: deploy.deployed_by}) : '')];
+            if (deploy.note) {
+                lines.push(deploy.note);
+            }
+            if (deploy.worse && deploy.worse.length) {
+                lines.push(fill(i18n.deployWorse, {components: deploy.worse.map(function (w) { return w.label; }).join(', ')}));
+            } else if (deploy.worse) {
+                lines.push(i18n.deployOk);
+            }
+            return lines;
+        }
+
+        // Lines at each deploy's position (in % of the bars or chart). Red when this component
+        // (component = its key; none = the list is already for one component) got worse after it.
+        function renderDeployMarkers(container, deploys, component) {
+            container.querySelectorAll(':scope > .sst-deploy-marker').forEach(function (marker) { marker.remove(); });
+            (deploys || []).forEach(function (deploy) {
+                if (deploy.position === undefined || deploy.position < 0 || deploy.position > 100) {
+                    return;
+                }
+                const marker = document.createElement('span');
+                marker.className = 'sst-deploy-marker';
+                marker.style.insetInlineStart = deploy.position + '%';
+                const worse = (deploy.worse || []).some(function (w) { return !component || w.component === component; });
+                marker.dataset.worse = worse ? '1' : '0';
+                marker.setAttribute('aria-label', fill(i18n.deploy, {version: deploy.label}));
+                marker._sstLines = deployLines(deploy);
+                container.appendChild(marker);
+            });
+        }
+
+        function renderDeploys(list) {
+            $('sstDeploysPanel').hidden = !list.length;
+            const fragment = document.createDocumentFragment();
+
+            list.forEach(function (deploy) {
+                const item = document.createElement('li');
+                item.className = 'sst-deploy';
+
+                const version = document.createElement('span');
+                version.className = 'sst-deploy-version';
+                const icon = document.createElement('i');
+                icon.className = 'fas fa-rocket';
+                icon.setAttribute('aria-hidden', 'true');
+                version.append(icon, document.createTextNode(deploy.label));
+
+                const meta = document.createElement('span');
+                meta.className = 'sst-deploy-meta';
+                meta.textContent = deploy.at + ' · ' + deploy.ago
+                    + (deploy.deployed_by ? ' · ' + fill(i18n.by, {name: deploy.deployed_by}) : '')
+                    + (deploy.note ? ' · ' + deploy.note : '');
+                item.append(version, meta);
+
+                if (deploy.worse) {
+                    const result = document.createElement('span');
+                    result.className = 'sst-deploy-result';
+                    result.dataset.worse = deploy.worse.length ? '1' : '0';
+                    result.textContent = deploy.worse.length
+                        ? fill(i18n.deployWorse, {components: deploy.worse.map(function (w) { return w.label; }).join(', ')})
+                        : i18n.deployOk;
+                    item.appendChild(result);
+                }
+                fragment.appendChild(item);
+            });
+
+            const box = $('sstDeploys');
+            box.replaceChildren(fragment);
         }
 
         function renderHero(data) {
@@ -357,9 +435,10 @@
             $('sstHero').dataset.level = level;
             $('sstHeroIcon').className = LEVEL_ICONS[level] || LEVEL_ICONS.loading;
             $('sstHeroTitle').textContent = data.overall.label;
-            $('sstHeroMeta').textContent = data.last_run_ago
+            const lastDeploy = (data.recent_deploys || [])[0];
+            $('sstHeroMeta').textContent = (data.last_run_ago
                 ? fill(i18n.lastChecked, {time: data.last_run_ago}) + (data.last_run_at ? ' · ' + data.last_run_at : '')
-                : '';
+                : '') + (lastDeploy ? ' · ' + fill(i18n.lastDeploy, {version: lastDeploy.label, ago: lastDeploy.ago}) : '');
         }
 
         function allComponents(data) {
@@ -398,6 +477,13 @@
 
         function fillComponent(node, component) {
             // Nothing to do when this component's data did not change since the last refresh.
+            // Deploy lines change on their own (a new deploy, or the range moving on).
+            const bars = node.querySelector('.sst-bars');
+            if (node._sstDeploys !== state.deploySignature) {
+                node._sstDeploys = state.deploySignature;
+                renderDeployMarkers(bars, state.data.deploys, component.key);
+            }
+
             const signature = JSON.stringify(component) + state.data.range.key;
             if (node._sstSignature === signature) {
                 return;
@@ -427,7 +513,7 @@
             const message = setText(node, '.sst-component-message', component.message || '');
             message.hidden = !component.message;
 
-            renderBars(node.querySelector('.sst-bars'), component.days);
+            renderBars(bars, component.days);
             setText(node, '.sst-range-start', state.data.range.start_label);
             setText(node, '.sst-range-end', state.data.range.key === '90d' ? i18n.today : i18n.now);
         }
@@ -525,6 +611,12 @@
                 setText(node, '.sst-incident-time',
                     incident.started_at + ' → ' + (incident.resolved_at || '…') + ' · ' + fill(i18n.duration, {minutes: incident.duration_minutes})
                     + (incident.created_by ? ' · ' + fill(i18n.by, {name: incident.created_by}) : ''));
+
+                const deployNote = node.querySelector('.sst-incident-deploy');
+                deployNote.hidden = !incident.deploy;
+                if (incident.deploy) {
+                    deployNote.lastElementChild.textContent = fill(i18n.afterDeploy, {minutes: incident.deploy.minutes, version: incident.deploy.label});
+                }
 
                 const timeline = node.querySelector('.sst-timeline');
                 (incident.updates || []).forEach(function (update) {
@@ -752,10 +844,15 @@
             getJson(root.dataset.summaryUrl, {range: state.range})
                 .then(function (response) {
                     state.data = response.data;
+                    // Without the "2 min ago" text, which changes on every refresh.
+                    state.deploySignature = JSON.stringify((state.data.deploys || []).map(function (d) {
+                        return [d.id, d.position, d.label, d.note, d.worse];
+                    }));
                     renderHero(state.data);
                     renderKpis(state.data);
                     renderGroups(state.data.groups);
                     renderMaintenances(state.data.maintenances || []);
+                    renderDeploys(state.data.recent_deploys || []);
                     return refreshIncidents(state.data);
                 })
                 .catch(function () {
@@ -1028,6 +1125,11 @@
                     });
                     renderChart($('sstDetailChart'), data.hourly);
                     renderLatency($('sstDetailLatency'), data.hourly, data.latency ? data.latency.degraded_p95_ms : null);
+                    ['sstDetailChart', 'sstDetailLatency'].forEach(function (id) {
+                        if ($(id).querySelector('.sst-chart-col')) {
+                            renderDeployMarkers($(id), data.deploys);
+                        }
+                    });
                     $('sstDetailRoutes').replaceChildren();
                     $('sstDetailChecks').replaceChildren();
 

@@ -44,7 +44,7 @@
         }
 
         /* ---------- top bar ---------- */
-        .sst-bar {
+        header.sst-bar {
             --bar-tone: #9ca3af;
             position: sticky;
             top: 0;
@@ -54,14 +54,14 @@
             box-shadow: 0 6px 24px -18px rgb(17 24 39 / .35);
         }
 
-        .sst-bar[data-level="operational"] { --bar-tone: #16a34a; }
-        .sst-bar[data-level="degraded"] { --bar-tone: #f59e0b; }
-        .sst-bar[data-level="partial"] { --bar-tone: #f97316; }
-        .sst-bar[data-level="major"] { --bar-tone: #dc2626; }
-        .sst-bar[data-level="maintenance"] { --bar-tone: #2563eb; }
+        header.sst-bar[data-level="operational"] { --bar-tone: #16a34a; }
+        header.sst-bar[data-level="degraded"] { --bar-tone: #f59e0b; }
+        header.sst-bar[data-level="partial"] { --bar-tone: #f97316; }
+        header.sst-bar[data-level="major"] { --bar-tone: #dc2626; }
+        header.sst-bar[data-level="maintenance"] { --bar-tone: #2563eb; }
 
         /* A thin line in the status colour under the bar. */
-        .sst-bar::after {
+        header.sst-bar::after {
             content: "";
             position: absolute;
             inset-inline: 0;
@@ -209,9 +209,9 @@
         }
 
         /* Faster pulse while loading or when something is wrong. */
-        .sst-bar[data-level="loading"] .sst-pulse::after,
-        .sst-bar[data-level="partial"] .sst-pulse::after,
-        .sst-bar[data-level="major"] .sst-pulse::after { animation-duration: 1.1s; }
+        header.sst-bar[data-level="loading"] .sst-pulse::after,
+        header.sst-bar[data-level="partial"] .sst-pulse::after,
+        header.sst-bar[data-level="major"] .sst-pulse::after { animation-duration: 1.1s; }
 
         .sst-ecg {
             position: relative;

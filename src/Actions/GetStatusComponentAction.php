@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Models\StatusCheck;
 use Technobase\SystemStatus\Models\StatusComponent;
+use Technobase\SystemStatus\Models\StatusDeploy;
 use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Support\LatencyHistogram;
 use Technobase\SystemStatus\Support\StatusMetrics;
@@ -115,6 +116,23 @@ class GetStatusComponentAction
             ->map(fn (StatusIncident $incident) => $this->summaryAction->incidentRow($incident))
             ->all();
 
+        // Deploys on the 24-hour charts: one column per hour, from 23 hours ago to this hour.
+        $chartStart = now()->subHours(23)->startOfHour();
+        $chartEnd = now()->startOfHour()->addHour();
+        $deploys = StatusDeploy::query()
+            ->where('deployed_at', '>=', $chartStart)
+            ->where('deployed_at', '<', $chartEnd)
+            ->orderBy('deployed_at')
+            ->get()
+            ->map(function (StatusDeploy $deploy) use ($component, $chartStart, $chartEnd) {
+                $row = $this->summaryAction->deployRow($deploy, $chartStart->timestamp, $chartEnd->timestamp);
+                // Only this component's comparison.
+                $row['worse'] = $row['worse'] === null ? null : array_values(array_filter($row['worse'], fn (array $item) => $item['component'] === $component));
+
+                return $row;
+            })
+            ->all();
+
         return [
             'key' => $component,
             'label' => $this->registry->label($component),
@@ -122,6 +140,7 @@ class GetStatusComponentAction
             'status_label' => $status->label(),
             'message' => $state?->message,
             'hourly' => $hours,
+            'deploys' => $deploys,
             'latency' => [
                 'p50' => LatencyHistogram::percentile($latency, 50),
                 'p95' => LatencyHistogram::percentile($latency, 95),

@@ -169,6 +169,27 @@ return [
         'accent' => '#6F2E8F',
     ],
 
+    // Deploy markers: `php artisan status:deploy 1.8.2` (or POST {path}/deploys from CI) records
+    // a deploy. It shows as a line on the charts, and incidents that start soon after it say so.
+    'deploys' => [
+        // Bearer token for POST {path}/deploys. null = the endpoint is off (404).
+        'token' => env('SYSTEM_STATUS_DEPLOY_TOKEN'),
+        // An incident that starts within this many minutes after a deploy names it.
+        'incident_window_minutes' => 30,
+        // Also send "🚀 Deployed 1.8.2" to the alert channels.
+        'announce' => false,
+        // After `after_minutes`, compare each component's error rate and p95 with the same time
+        // before the deploy, and send one alert when they got clearly worse. Off by default.
+        'compare' => [
+            'enabled' => false,
+            'after_minutes' => 15,
+            // Error rate rise in percentage points (0.3 % → 2.5 % is 2.2).
+            'error_rate_increase' => 2,
+            // p95 rise in percent (and at least 100 ms).
+            'p95_increase_percent' => 50,
+        ],
+    ],
+
     'retention_days' => [
         'checks' => 7,
         'route_buckets' => 7,

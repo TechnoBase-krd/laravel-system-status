@@ -48,6 +48,7 @@ Used in production by Khatun-Ecommerce and CloudNova-OnlineShopping.
 - [Signals](#signals)
 - [Maintenance windows](#maintenance-windows)
 - [Incidents](#incidents)
+- [Deploy markers](#deploy-markers)
 - [Alerts](#alerts)
 - [Latency](#latency)
 - [Dependencies](#dependencies)
@@ -551,6 +552,57 @@ How it behaves:
 
 ---
 
+## Deploy markers
+
+Record each deploy, and the page shows it as a line on the bars and on the detail charts, with
+"Last deploy" under the status and a *Recent deploys* list. An incident that starts within
+`deploys.incident_window_minutes` (30) after a deploy says "6 min after deploy v1.8.2", on the
+page, in the alert and in the monthly report.
+
+At the end of the deploy script:
+
+```bash
+php artisan migrate --force
+php artisan status:deploy 1.8.2 --note="New checkout"
+```
+
+Without a version, it reads `git describe --tags --always` and the commit from git. Other
+options: `--commit=`, `--by=`, `--at="2026-10-25 14:05"`, and `--list` for the last deploys.
+(The version is an argument because `--version` belongs to artisan itself.)
+
+From CI, without SSH, set `SYSTEM_STATUS_DEPLOY_TOKEN` and POST to `{path}/deploys`:
+
+```bash
+curl -X POST https://shop.example.com/system-status/deploys \
+  -H "Authorization: Bearer $SYSTEM_STATUS_DEPLOY_TOKEN" \
+  -d version=1.8.2 -d commit=$GITHUB_SHA -d deployed_by=$GITHUB_ACTOR
+```
+
+The endpoint answers 404 while no token is set. Fields: `version` (required), `commit`, `note`,
+`deployed_by`, `deployed_at`.
+
+```php
+'deploys' => [
+    'token' => env('SYSTEM_STATUS_DEPLOY_TOKEN'),
+    'incident_window_minutes' => 30,
+    'announce' => false,          // also send "🚀 Deployed 1.8.2" to the alert channels
+    'compare' => [
+        'enabled' => false,       // before/after comparison
+        'after_minutes' => 15,
+        'error_rate_increase' => 2,      // percentage points
+        'p95_increase_percent' => 50,    // and at least 100 ms
+    ],
+],
+```
+
+With `compare.enabled`, `status:check` compares each component's error rate and p95 in the
+`after_minutes` after a deploy with the same time before it, and sends one alert when they got
+clearly worse ("⚠️ Worse in the 15 min after deploy 1.8.2: Orders: errors 0.3% → 4.1%"). The
+marker turns red on those components and *Recent deploys* shows the result. Listen to
+`Technobase\SystemStatus\Events\DeployRecorded` to react in code.
+
+---
+
 ## Incidents
 
 `status:check` opens, upgrades and resolves incidents by itself. You can also **post an
@@ -652,7 +704,8 @@ The body:
 ```
 
 Events: `component.status_changed`, `incident.posted`, `incident.updated`,
-`incident.postmortem`, `maintenance.started`, `maintenance.ended`, and `test` (from
+`incident.postmortem`, `maintenance.started`, `maintenance.ended`, `deploy.recorded`,
+`deploy.regression`, and `test` (from
 `status:test-alert --webhooks`). Webhooks follow `alerts.enabled` and are not sent in `local`.
 
 With a secret, the header `X-System-Status-Signature: sha256=<hmac>` holds the HMAC-SHA256 of
@@ -929,6 +982,7 @@ return [
 | `status:report` | by hand | monthly uptime against SLA (`--month=YYYY-MM`, `--previous`, `--format=table\|csv\|html\|pdf`, `--output=`, `--mail=`, `--send`) |
 | `status:test-alert` | by hand | sends a test alert to each channel and shows the result (`--channel=`, `--webhooks`, `--force`) |
 | `status:doctor` | by hand | checks the setup and prints one line per check |
+| `status:deploy` | deploy scripts | records a deploy (`release`, `--commit=`, `--note=`, `--by=`, `--at=`, `--list`) |
 
 Set `schedule` to `false` to schedule them yourself.
 
@@ -946,6 +1000,7 @@ Set `schedule` to `false` to schedule them yourself.
 | `status_incidents` | incidents opened by `status:check` or posted by hand: severity, title, state, source (`auto` / `manual`), `affected_by`, postmortem | 90 days after resolution |
 | `status_incident_updates` | the timeline of each incident: state, message, author | with their incident |
 | `status_maintenances` | maintenance windows: title, message, components, start and end | 90 days after they end |
+| `status_deploys` | deploys: version, commit, note, who, when, and the before/after comparison | 90 days |
 
 The migrations create tables and columns only when they do not exist yet, so they are safe on a
 database that already has them.
@@ -986,6 +1041,8 @@ Publish it again with `--force` after an upgrade to get the new guidance.
 - **Deploys.** Start a maintenance window before the deploy
   (`php artisan status:maintenance --all --minutes=10`), so restarts do not open incidents or
   send alerts (see [Maintenance windows](#maintenance-windows)).
+- **Deploy marker.** End the deploy script with `php artisan status:deploy` (see
+  [Deploy markers](#deploy-markers)).
 - **Check.** `php artisan status:doctor` after the first deploy.
 
 ---

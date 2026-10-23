@@ -64,6 +64,7 @@ class DoctorCommand extends Command
             'status_incident_updates' => [],
             'status_maintenances' => [],
             'status_monthly' => [],
+            'status_deploys' => [],
         ];
 
         try {

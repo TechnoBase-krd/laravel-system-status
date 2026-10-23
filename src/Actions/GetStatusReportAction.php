@@ -4,7 +4,9 @@ namespace Technobase\SystemStatus\Actions;
 
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Technobase\SystemStatus\Models\StatusDeploy;
 use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Support\StatusRegistry;
 
@@ -31,6 +33,12 @@ class GetStatusReportAction
             ->orderBy('started_at')
             ->get();
         $incidents = $incidentRows->countBy('component');
+        $deploys = StatusDeploy::query()
+            ->where('deployed_at', '>=', $start->copy()->subMinutes((int) config('system-status.deploys.incident_window_minutes', 30)))
+            ->where('deployed_at', '<', $end)
+            ->orderBy('deployed_at')
+            ->get();
+        $afterDeploy = fn (StatusIncident $incident) => $incident->source === StatusIncident::SOURCE_MANUAL ? null : $this->deployBefore($deploys, $incident);
         $daily = $this->dailyLevels($start, $end);
 
         $components = [];
@@ -76,6 +84,8 @@ class GetStatusReportAction
             'outage_minutes' => array_sum(array_column($components, 'outage_minutes')),
             'maintenance_minutes' => array_sum(array_column($components, 'maintenance_minutes')),
             'incident_count' => $incidentRows->count(),
+            'deploy_count' => $deploys->filter(fn (StatusDeploy $deploy) => $deploy->deployed_at->gte($start))->count(),
+            'incidents_after_deploy' => $incidentRows->filter(fn (StatusIncident $incident) => $afterDeploy($incident) !== null)->count(),
             'components' => $components,
             'incidents' => $incidentRows->map(fn (StatusIncident $incident) => [
                 'component' => $this->registry->label($incident->component),
@@ -88,8 +98,22 @@ class GetStatusReportAction
                 'duration_minutes' => max(1, (int) $incident->started_at->diffInMinutes($incident->resolved_at ?? now())),
                 'postmortem' => $incident->postmortem,
                 'affected_by' => $incident->affected_by ? $this->registry->label($incident->affected_by) : null,
+                'after_deploy' => $afterDeploy($incident)?->label(),
             ])->values()->all(),
         ];
+    }
+
+    /**
+     * The last deploy within deploys.incident_window_minutes before the incident started.
+     */
+    private function deployBefore(Collection $deploys, StatusIncident $incident): ?StatusDeploy
+    {
+        $window = (int) config('system-status.deploys.incident_window_minutes', 30);
+
+        return $deploys
+            ->filter(fn (StatusDeploy $deploy) => $deploy->deployed_at->lte($incident->started_at)
+                && $deploy->deployed_at->gte($incident->started_at->copy()->subMinutes($window)))
+            ->last();
     }
 
     /**

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Deploy markers: `php artisan status:deploy 1.8.2` (or `POST {path}/deploys` from CI with
+  `deploys.token`) records a deploy. It shows as a line on the bars and the detail charts, as
+  "Last deploy" and in a *Recent deploys* list; incidents that start within
+  `deploys.incident_window_minutes` after it name it on the page, in the alert and in the
+  monthly report. Optional before/after comparison (`deploys.compare`, off by default) sends one
+  alert when errors or p95 got clearly worse. New `status_deploys` table, `DeployRecorded`
+  event, `deploy.recorded` / `deploy.regression` webhook events and the
+  `system_status.deploys.store` route.
+- Fix: the standalone layout's top bar styles (`.sst-bar`) also applied to every history bar,
+  making each one sticky; they now apply to the header only.
+
+## v1.5.0 - 2026-10-23
+
 - Faster status page with many components or a lot of history: a refresh only updates what
   changed instead of redrawing every bar, groups off screen are not drawn, and the summary is
   built about 4–8 times faster with a response about half the size (zero and empty values are

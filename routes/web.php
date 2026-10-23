@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Technobase\SystemStatus\Http\Controllers\DeployController;
 use Technobase\SystemStatus\Http\Controllers\StatusManagementController;
 use Technobase\SystemStatus\Http\Controllers\StatusReportController;
 use Technobase\SystemStatus\Http\Controllers\SystemStatusController;
@@ -38,3 +39,8 @@ Route::middleware([...(array) config('system-status.middleware', ['web', 'auth']
                 ->name('system_status.maintenances.end');
         });
     });
+
+// Deploys from CI: a bearer token (system-status.deploys.token), not a session, so no web middleware.
+Route::post($path.'/deploys', [DeployController::class, 'store'])
+    ->middleware('throttle:30,1')
+    ->name('system_status.deploys.store');

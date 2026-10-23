@@ -15,6 +15,7 @@ use Technobase\SystemStatus\Events\MaintenanceStarted;
 use Technobase\SystemStatus\Jobs\StatusHeartbeatJob;
 use Technobase\SystemStatus\Models\StatusCheck;
 use Technobase\SystemStatus\Models\StatusComponent;
+use Technobase\SystemStatus\Models\StatusDeploy;
 use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Probes\Probe;
@@ -40,6 +41,7 @@ class StatusService
         private readonly StatusMetrics $metrics,
         private readonly StatusRegistry $registry,
         private readonly StatusAlerter $alerter,
+        private readonly DeployService $deploys,
     ) {}
 
     /**
@@ -107,6 +109,7 @@ class StatusService
 
         $this->addDaily($daily);
         $this->sendReminders($now, $maintenance);
+        $this->safely(fn () => $this->deploys->compareDue($now));
         $this->alerter->flush($this->affectedBy, $this->registry);
         $this->alerter->flappingEnded(function (string $component) {
             $status = StatusComponent::query()->where('component', $component)->value('status');
@@ -742,7 +745,21 @@ class StatusService
 
         $icon = $current === ComponentStatus::MajorOutage ? '🔴' : '🟠';
         $label = $this->statusWords($current);
-        $this->alerter->change($component, trim("{$icon} {$name}: {$label}. ".($message ?? '')), $name);
+        $this->alerter->change($component, trim("{$icon} {$name}: {$label}. ".($message ?? '').($open ? '' : $this->afterDeploy($now))), $name);
+    }
+
+    /**
+     * " (3 min after deploy 1.8.2)" for an incident that starts soon after a deploy.
+     */
+    private function afterDeploy(CarbonInterface $now): string
+    {
+        try {
+            $deploy = StatusDeploy::justBefore($now);
+        } catch (Throwable) {
+            return '';
+        }
+
+        return $deploy ? ' ('.(int) $deploy->deployed_at->diffInMinutes($now).' min after deploy '.$deploy->label().')' : '';
     }
 
     private function statusWords(ComponentStatus $status): string

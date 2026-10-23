@@ -7,6 +7,7 @@ use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Pulse\Livewire\Card;
 use Livewire\Livewire;
+use Technobase\SystemStatus\Console\DeployCommand;
 use Technobase\SystemStatus\Console\DoctorCommand;
 use Technobase\SystemStatus\Console\ListStatusRoutesCommand;
 use Technobase\SystemStatus\Console\MaintenanceCommand;
@@ -44,6 +45,7 @@ class SystemStatusServiceProvider extends ServiceProvider
                 TestAlertCommand::class,
                 ReportCommand::class,
                 DoctorCommand::class,
+                DeployCommand::class,
             ]);
 
             $this->publishes([

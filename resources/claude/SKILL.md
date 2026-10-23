@@ -1,6 +1,6 @@
 ---
 name: system-status
-description: The System Status page provided by the technobase/laravel-system-status package (Super Admin only at /system-status by default) — the component registry in config/system-status.php, how a status is decided (read-only probes, real per-route traffic and p95 latency, StatusSignal for paid or side-effect calls, manual incidents), status:check with two-in-a-row confirmation, maintenance windows, incidents with timelines and postmortems, alert channels (Telegram, mail, Slack, Discord, webhooks), depends_on, SLA targets and monthly reports, the ComponentStatusChanged / IncidentUpdated / Maintenance* events, the status_* tables, status:doctor, the 1h / 24h / 7d / 90d history, translations and customisation. Use when adding a module, route group or integration, adding or changing a component, probe, route rule, signal, threshold, dependency, SLA or alert, when writing a deploy script, when a component shows an unexpected status, or when touching the status page.
+description: The System Status page provided by the technobase/laravel-system-status package (Super Admin only at /system-status by default) — the component registry in config/system-status.php, how a status is decided (read-only probes, real per-route traffic and p95 latency, StatusSignal for paid or side-effect calls, manual incidents), status:check with two-in-a-row confirmation, maintenance windows, deploy markers (status:deploy), incidents with timelines and postmortems, alert channels (Telegram, mail, Slack, Discord, webhooks), depends_on, SLA targets and monthly reports, the ComponentStatusChanged / IncidentUpdated / Maintenance* events, the status_* tables, status:doctor, the 1h / 24h / 7d / 90d history, translations and customisation. Use when adding a module, route group or integration, adding or changing a component, probe, route rule, signal, threshold, dependency, SLA or alert, when writing a deploy script or CI step, when a component shows an unexpected status, or when touching the status page.
 ---
 
 # System Status (technobase/laravel-system-status)
@@ -21,8 +21,8 @@ checks never create data or cost money, and a status only changes when it is rea
 | Components, thresholds, alerts, SLA, reports, access, layout | `config/system-status.php` |
 | The application's own probes | a folder of the application (e.g. `app/Probes` or a module's `Probes`) |
 | Labels for the application's components | `lang/vendor/system-status/<locale>/status.php` |
-| Reactions to status changes | listeners of `ComponentStatusChanged`, `IncidentUpdated`, `MaintenanceStarted`, `MaintenanceEnded` (all in `Technobase\SystemStatus\Events`) |
-| Alert credentials | `.env`: `SYSTEM_STATUS_TELEGRAM_CHAT_ID`, `SYSTEM_STATUS_ALERT_MAIL_TO`, `SYSTEM_STATUS_SLACK_WEBHOOK`, `SYSTEM_STATUS_DISCORD_WEBHOOK`, `SYSTEM_STATUS_REMINDER_MINUTES`, `SYSTEM_STATUS_REPORT_MAIL_TO` |
+| Reactions to status changes | listeners of `ComponentStatusChanged`, `IncidentUpdated`, `MaintenanceStarted`, `MaintenanceEnded`, `DeployRecorded` (all in `Technobase\SystemStatus\Events`) |
+| Alert credentials | `.env`: `SYSTEM_STATUS_TELEGRAM_CHAT_ID`, `SYSTEM_STATUS_ALERT_MAIL_TO`, `SYSTEM_STATUS_SLACK_WEBHOOK`, `SYSTEM_STATUS_DISCORD_WEBHOOK`, `SYSTEM_STATUS_REMINDER_MINUTES`, `SYSTEM_STATUS_REPORT_MAIL_TO`, `SYSTEM_STATUS_DEPLOY_TOKEN` |
 
 ## How a status is decided
 
@@ -127,6 +127,17 @@ php artisan status:maintenance --all --minutes=15
 php artisan status:maintenance --end=all
 ```
 
+Then record the deploy, so it shows as a line on the charts and incidents that start soon after
+name it ("6 min after deploy v1.8.2"):
+
+```bash
+php artisan status:deploy 1.8.2 --note="New checkout"   # no version = read from git
+```
+
+From CI: `POST {path}/deploys` with `Authorization: Bearer $SYSTEM_STATUS_DEPLOY_TOKEN` and
+`version` (plus `commit`, `note`, `deployed_by`). `deploys.compare.enabled` adds one alert when
+errors or p95 got clearly worse after a deploy.
+
 Only some components: `php artisan status:maintenance database redis --minutes=30
 --title="Database upgrade"`. Later: `--start="2026-10-25 02:00"`. `--list` shows windows,
 `--end=<id|all>` ends them. The page has a *Schedule maintenance* form too.
@@ -182,6 +193,7 @@ php artisan status:routes --fallback  # routes that match no component
 php artisan status:routes --component=api_orders
 php artisan status:maintenance --all --minutes=10   # maintenance window (--list, --end=<id|all>)
 php artisan status:test-alert         # test every alert channel (--channel=slack, --webhooks)
+php artisan status:deploy 1.8.2       # record a deploy (default version from git; --list)
 php artisan status:report --previous  # last month's uptime against SLA (--format=csv|html|pdf, --send)
 php artisan status:prune              # delete history past retention_days
 ```

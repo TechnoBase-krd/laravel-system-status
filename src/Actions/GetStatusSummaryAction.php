@@ -5,6 +5,7 @@ namespace Technobase\SystemStatus\Actions;
 use Illuminate\Support\Carbon;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Models\StatusComponent;
+use Technobase\SystemStatus\Models\StatusDeploy;
 use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Services\StatusService;
@@ -104,6 +105,8 @@ class GetStatusSummaryAction
         }
 
         $incidents = $this->incidentsPage(1);
+        [$rangeStart, $rangeEnd] = StatusTimeline::bounds($range);
+        $recentDeploys = StatusDeploy::query()->latest('deployed_at')->latest('id')->limit(5)->get();
 
         return [
             'overall' => $this->overall($statuses),
@@ -121,6 +124,16 @@ class GetStatusSummaryAction
                 'open' => StatusIncident::query()->whereNull('resolved_at')->count(),
             ],
             'maintenances' => $this->maintenances(),
+            // Deploys inside the range, placed on the bars (position in % from the start).
+            'deploys' => StatusDeploy::query()
+                ->where('deployed_at', '>=', Carbon::createFromTimestamp($rangeStart, config('app.timezone')))
+                ->where('deployed_at', '<', Carbon::createFromTimestamp($rangeEnd, config('app.timezone')))
+                ->orderBy('deployed_at')
+                ->limit(100)
+                ->get()
+                ->map(fn (StatusDeploy $deploy) => $this->deployRow($deploy, $rangeStart, $rangeEnd))
+                ->all(),
+            'recent_deploys' => $recentDeploys->map(fn (StatusDeploy $deploy) => $this->deployRow($deploy))->all(),
             'report_url' => route('system_status.report', ['month' => now()->format('Y-m'), 'format' => 'html']),
         ];
     }
@@ -268,9 +281,37 @@ class GetStatusSummaryAction
         ];
     }
 
+    /**
+     * A deploy for the page; with $start and $end (Unix seconds), also its position in % on the bars.
+     */
+    public function deployRow(StatusDeploy $deploy, ?int $start = null, ?int $end = null): array
+    {
+        $row = [
+            'id' => $deploy->id,
+            'version' => $deploy->version,
+            'label' => $deploy->label(),
+            'commit' => $deploy->commit,
+            'note' => $deploy->note,
+            'deployed_by' => $deploy->deployed_by,
+            'at' => $deploy->deployed_at->format('Y-m-d H:i'),
+            'ago' => $deploy->deployed_at->diffForHumans(),
+            // null = not compared yet; [] = nothing got worse.
+            'worse' => $deploy->compared_at === null ? null : array_map(fn (array $item) => $item + [
+                'label' => $this->registry->label($item['component']),
+            ], (array) $deploy->comparison),
+        ];
+
+        if ($start !== null && $end !== null && $end > $start) {
+            $row['position'] = round(($deploy->deployed_at->timestamp - $start) / ($end - $start) * 100, 2);
+        }
+
+        return $row;
+    }
+
     public function incidentRow(StatusIncident $incident): array
     {
         $end = $incident->resolved_at ?? now();
+        $deploy = $incident->source === StatusIncident::SOURCE_MANUAL ? null : StatusDeploy::justBefore($incident->started_at);
 
         return [
             'id' => $incident->id,
@@ -296,6 +337,11 @@ class GetStatusSummaryAction
             'resolved_at' => $incident->resolved_at?->format('Y-m-d H:i'),
             'ongoing' => $incident->resolved_at === null,
             'duration_minutes' => max(1, (int) $incident->started_at->diffInMinutes($end)),
+            // The deploy this incident started soon after (deploys.incident_window_minutes).
+            'deploy' => $deploy ? [
+                'label' => $deploy->label(),
+                'minutes' => (int) $deploy->deployed_at->diffInMinutes($incident->started_at),
+            ] : null,
         ];
     }
 }
