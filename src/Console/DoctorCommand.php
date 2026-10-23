@@ -145,6 +145,11 @@ class DoctorCommand extends Command
             }
         }
 
+        // Fallback components collect every route no rule matched.
+        foreach ((array) config('system-status.fallback', []) as $fallback) {
+            $routed[$fallback] = true;
+        }
+
         $silent = [];
         $unknownDependencies = [];
 
