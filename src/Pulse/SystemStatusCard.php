@@ -6,6 +6,7 @@ use Illuminate\Contracts\View\View;
 use Laravel\Pulse\Livewire\Card;
 use Livewire\Attributes\Lazy;
 use Technobase\SystemStatus\Actions\GetStatusSummaryAction;
+use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatus;
 
 /**
  * A Laravel Pulse card with the overall status and the components that have a problem.
@@ -18,6 +19,11 @@ class SystemStatusCard extends Card
 {
     public function render(): View
     {
+        // The card follows the page's access rules, not only Pulse's.
+        if (! AuthorizeSystemStatus::allows(auth()->user())) {
+            return view('system-status::pulse.card', ['denied' => true]);
+        }
+
         $data = app(GetStatusSummaryAction::class)->execute('90d');
 
         $problems = collect($data['groups'])
@@ -32,6 +38,7 @@ class SystemStatusCard extends Card
             'problems' => $problems,
             'openIncidents' => collect($data['incidents'])->where('ongoing', true)->count(),
             'url' => route('system_status.index'),
+            'denied' => false,
         ]);
     }
 }

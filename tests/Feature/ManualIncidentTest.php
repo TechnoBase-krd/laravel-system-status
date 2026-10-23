@@ -112,3 +112,10 @@ it('validates the incident form', function () {
     $this->actingAs($this->admin)->postJson('/system-status/incidents', ['component' => 'nope', 'severity' => 'operational'])
         ->assertUnprocessable()->assertJsonValidationErrors(['component', 'severity', 'title']);
 });
+
+it('accepts a postmortem only on resolved incidents', function () {
+    $incident = postIncident();
+
+    $this->actingAs($this->admin)->patchJson("/system-status/incidents/{$incident->id}", ['postmortem' => 'x'])
+        ->assertUnprocessable();
+});

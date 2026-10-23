@@ -88,8 +88,9 @@ return [
     // Redis connection for the per-minute traffic counters (null = the default connection).
     'redis_connection' => null,
 
-    // Global thresholds. A component can override any of them with its own
-    // 'thresholds' => ['degraded_error_rate' => 2, 'latency_degraded_p95_ms' => 800, ...].
+    // Global thresholds. A component can override min_requests, min_signals,
+    // degraded_error_rate, outage_error_rate, latency_degraded_p95_ms, latency_outage_p95_ms and
+    // confirm_runs with its own 'thresholds' => ['degraded_error_rate' => 2, ...].
     'thresholds' => [
         'window_minutes' => 15,
         'min_requests' => 20,

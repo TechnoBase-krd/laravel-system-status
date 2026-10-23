@@ -119,6 +119,10 @@ class IncidentService
 
     public function postmortem(StatusIncident $incident, ?string $text): StatusIncident
     {
+        if ($incident->resolved_at === null) {
+            throw new InvalidArgumentException('Write the cause and fix once the incident is resolved.');
+        }
+
         $incident->update(['postmortem' => filled($text) ? $text : null]);
         $this->fire($incident, IncidentUpdated::POSTMORTEM);
 

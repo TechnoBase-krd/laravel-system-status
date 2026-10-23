@@ -118,12 +118,13 @@ Per-component `thresholds` can override `min_requests`, `min_signals`, `degraded
 `outage_error_rate`, `latency_degraded_p95_ms`, `latency_outage_p95_ms` and `confirm_runs`.
 `sla.default_target` sets a target for every component without its own `sla`.
 
-**Maintenance in a deploy script**: start a window before the work and let it run out (make it
-a little longer than the deploy; errors from the deploy stay in the 15-minute traffic window):
+**Maintenance in a deploy script**: start a window before the work and end it after (traffic
+from before the end of a window is ignored, so the deploy's own errors never open an incident):
 
 ```bash
-php artisan status:maintenance --all --minutes=10
+php artisan status:maintenance --all --minutes=15
 # … deploy …
+php artisan status:maintenance --end=all
 ```
 
 Only some components: `php artisan status:maintenance database redis --minutes=30

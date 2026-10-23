@@ -56,10 +56,13 @@ it('returns to the observed status when the window ends', function () {
     Event::assertDispatchedTimes(MaintenanceEnded::class, 1);
 });
 
-it('opens an incident right away when a problem remains after the window', function () {
+it('opens an incident when a problem remains after the window, after confirmation', function () {
     maintain(['database'], minutes: 2);
     probeReturns('database', ProbeResult::outage('still down'));
     runChecks(3);
+    expect(StatusComponent::query()->where('component', 'database')->first()->status)->toBe(ComponentStatus::Operational);
+
+    runChecks(1);
 
     expect(StatusComponent::query()->where('component', 'database')->first()->status)->toBe(ComponentStatus::MajorOutage)
         ->and(StatusIncident::query()->open()->where('component', 'database')->count())->toBe(1);
@@ -130,4 +133,24 @@ it('schedules from the console', function () {
     $this->artisan('status:maintenance', ['--end' => 'all'])->assertSuccessful();
 
     expect(StatusMaintenance::query()->sole()->isActive())->toBeFalse();
+});
+
+it('ignores errors recorded during the window once it is over', function () {
+    maintain(['api_orders'], minutes: 2);
+    addTraffic('api_orders', 100, 90, at: now()->subMinutes(5));
+
+    runChecks(5);
+
+    expect(StatusComponent::query()->where('component', 'api_orders')->first()->status)->toBe(ComponentStatus::Operational)
+        ->and(StatusIncident::query()->count())->toBe(0);
+});
+
+it('closes an incident left open from before the window', function () {
+    probeReturns('database', ProbeResult::outage('down'));
+    runChecks(2);
+    maintain(['database'], minutes: 2);
+    probeReturns('database', ProbeResult::ok());
+    runChecks(3);
+
+    expect(StatusIncident::query()->open()->count())->toBe(0);
 });

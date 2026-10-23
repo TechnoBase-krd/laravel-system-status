@@ -524,17 +524,18 @@ php artisan status:maintenance --end=all                                # end ev
 `--start` is read in the application's timezone. Ending a window that has not started yet
 cancels it.
 
-In a deploy script, open a short window before the work and let it run out:
+In a deploy script, open a window before the work and end it after:
 
 ```bash
-php artisan status:maintenance --all --minutes=10
+php artisan status:maintenance --all --minutes=15
 # … deploy …
+php artisan status:maintenance --end=all
 ```
 
-Make the window a little longer than the deploy. Errors from the deploy stay in the traffic
-window (`thresholds.window_minutes`) for a while, so ending the window right after the work
-(`--end=all`) can still turn them into an incident. While the application is down
-(`php artisan down`), the scheduler does not run `status:check`.
+After a window ends, only traffic recorded after its end counts, so errors from the deploy
+itself never open an incident, and a problem must still be confirmed by two runs in a row as
+usual. While the application is down (`php artisan down`), the scheduler does not run
+`status:check`.
 
 How it behaves:
 
@@ -748,8 +749,9 @@ php artisan status:report --previous --send              # to reports.mail_to
 last month's report is emailed on the 1st of each month at 08:00, attached in `reports.format`
 (`csv`, `html` or `pdf`).
 
-The report reads the `status_monthly` table, which is filled from this version on and never
-pruned. Months before the upgrade show no data.
+The report reads the `status_monthly` table, which is never pruned. The migration fills it from
+the daily history still in `status_daily` (90 days by default), so recent months have data
+right after the upgrade.
 
 ---
 

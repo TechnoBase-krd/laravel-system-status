@@ -68,8 +68,8 @@ class StatusService
 
         [$probeResults, $probesRun] = $this->runProbes($now);
         $this->dispatchQueueHeartbeats($now);
-        $traffic = $this->traffic($now);
         $maintenance = $this->maintenanceWindows($now);
+        $traffic = $this->traffic($now);
         $manual = $this->openManualIncidents();
 
         $changes = [];
@@ -233,7 +233,53 @@ class StatusService
             ];
         }
 
+        // Errors from the work itself (a deploy, a migration) must not count once a maintenance
+        // window is over: only traffic recorded after the window ended is used.
+        foreach ($this->recentlyEndedMaintenance($since) as $component => $endedAt) {
+            unset($traffic[$component]);
+
+            DB::table('status_route_buckets')
+                ->where('component', $component)
+                ->where('bucket_at', '>=', $endedAt)
+                ->selectRaw("CASE WHEN route = '".StatusMetrics::SIGNAL_ROUTE."' THEN 1 ELSE 0 END AS is_signal")
+                ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors, '.LatencyHistogram::sumSelect())
+                ->groupByRaw('is_signal')
+                ->get()
+                ->each(function ($row) use (&$traffic, $component) {
+                    $traffic[$component][(int) $row->is_signal === 1 ? 'signal' : 'routes'] = [
+                        'requests' => (int) $row->requests,
+                        'errors' => (int) $row->errors,
+                        'latency' => LatencyHistogram::fromRow($row),
+                    ];
+                });
+        }
+
         return $traffic;
+    }
+
+    /**
+     * Components whose maintenance window ended inside the traffic window, with the end time.
+     *
+     * @return array<string, CarbonInterface>
+     */
+    private function recentlyEndedMaintenance(CarbonInterface $since): array
+    {
+        $ended = [];
+
+        try {
+            StatusMaintenance::query()->where('ends_at', '>', $since)->where('ends_at', '<=', now())->get()
+                ->each(function (StatusMaintenance $maintenance) use (&$ended) {
+                    foreach ((array) $maintenance->components as $component) {
+                        if (! isset($ended[$component]) || $maintenance->ends_at->gt($ended[$component])) {
+                            $ended[$component] = $maintenance->ends_at;
+                        }
+                    }
+                });
+        } catch (Throwable $e) {
+            Log::warning('Status maintenance windows could not be read.', ['exception' => $e::class]);
+        }
+
+        return $ended;
     }
 
     /**
@@ -449,26 +495,18 @@ class StatusService
         $wasAffectedBy = $state->affected_by;
         $state->affected_by = $this->affectedBy[$component] ?? null;
 
-        // Leaving a maintenance window: take the observed status at once, without confirmation.
-        // A problem found right after the work opens an incident as usual.
+        // Leaving a maintenance window: back to operational; a problem found after the work
+        // must be confirmed like any other change.
         if ($state->status === ComponentStatus::Maintenance) {
-            $state->status = $observed;
-            $state->message = $message;
+            $state->status = ComponentStatus::Operational;
             $state->changed_at = $now;
             $state->candidate_status = null;
             $state->candidate_runs = 0;
-            $state->save();
 
-            if ($observed !== ComponentStatus::Operational) {
-                $changes[] = $component.': maintenance -> '.$observed->value;
-                $this->recordIncident($component, ComponentStatus::Operational, $observed, $message, $now);
-                $this->dispatchChange($component, ComponentStatus::Operational, $observed, $message, $now);
-            } else {
+            if ($observed === ComponentStatus::Operational) {
                 // An incident left open from before the window is over now.
                 $this->recordIncident($component, ComponentStatus::Operational, $observed, $message, $now);
             }
-
-            return $state;
         }
 
         if ($observed === $state->status) {

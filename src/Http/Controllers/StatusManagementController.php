@@ -51,7 +51,11 @@ class StatusManagementController extends Controller
 
     public function updateIncident(StatusIncident $incident, UpdateIncidentRequest $request, IncidentService $service, GetStatusSummaryAction $summary): JsonResponse
     {
-        $service->postmortem($incident, $request->validated('postmortem'));
+        try {
+            $service->postmortem($incident, $request->validated('postmortem'));
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage(), 'errors' => ['postmortem' => [$e->getMessage()]]], 422);
+        }
 
         return response()->json(['data' => $summary->incidentRow($incident->fresh('updates'))]);
     }

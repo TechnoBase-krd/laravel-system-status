@@ -1,3 +1,9 @@
+@if($denied ?? false)
+    <x-pulse::card :cols="$cols" :rows="$rows" :class="$class">
+        <x-pulse::card-header name="{{ __('system-status::status.system_status') }}" />
+        <x-pulse::no-results />
+    </x-pulse::card>
+@else
 @php
     $tones = [
         'operational' => '#16a34a', 'degraded' => '#f59e0b', 'partial' => '#f97316',
@@ -44,3 +50,4 @@
         @endforelse
     </x-pulse::scroll>
 </x-pulse::card>
+@endif
