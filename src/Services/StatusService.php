@@ -12,10 +12,13 @@ use Illuminate\Support\Facades\Notification;
 use NotificationChannels\Telegram\TelegramMessage;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Events\ComponentStatusChanged;
+use Technobase\SystemStatus\Events\MaintenanceEnded;
+use Technobase\SystemStatus\Events\MaintenanceStarted;
 use Technobase\SystemStatus\Jobs\StatusHeartbeatJob;
 use Technobase\SystemStatus\Models\StatusCheck;
 use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Models\StatusIncident;
+use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Notifications\StatusAlertNotification;
 use Technobase\SystemStatus\Probes\Probe;
 use Technobase\SystemStatus\Probes\ProbeResult;
@@ -56,6 +59,7 @@ class StatusService
         [$probeResults, $probesRun] = $this->runProbes($now);
         $this->dispatchQueueHeartbeats($now);
         $traffic = $this->traffic($now);
+        $maintenance = $this->maintenanceWindows($now);
 
         $changes = [];
         $daily = [];
@@ -68,7 +72,9 @@ class StatusService
                 $traffic[$component] ?? [],
             );
 
-            $state = $this->applyStatus($component, $status, $message, $configured, $now, $changes);
+            $state = isset($maintenance[$component])
+                ? $this->applyMaintenance($component, $maintenance[$component], $configured, $now)
+                : $this->applyStatus($component, $status, $message, $configured, $now, $changes);
             $daily[] = $this->dailyRow($component, $state->status, $now);
         }
 
@@ -289,6 +295,25 @@ class StatusService
         $state->configured = $configured;
         $state->checked_at = $now;
 
+        // Leaving a maintenance window: take the observed status at once, without confirmation.
+        // A problem found right after the work opens an incident as usual.
+        if ($state->status === ComponentStatus::Maintenance) {
+            $state->status = $observed;
+            $state->message = $message;
+            $state->changed_at = $now;
+            $state->candidate_status = null;
+            $state->candidate_runs = 0;
+            $state->save();
+
+            if ($observed !== ComponentStatus::Operational) {
+                $changes[] = $component.': maintenance -> '.$observed->value;
+                $this->recordIncident($component, ComponentStatus::Operational, $observed, $message, $now);
+                $this->dispatchChange($component, ComponentStatus::Operational, $observed, $message, $now);
+            }
+
+            return $state;
+        }
+
         if ($observed === $state->status) {
             $state->candidate_status = null;
             $state->candidate_runs = 0;
@@ -326,6 +351,70 @@ class StatusService
         }
 
         return $state;
+    }
+
+    /**
+     * A component inside a maintenance window shows Maintenance straight away: no confirmation,
+     * no incident, no alert and no ComponentStatusChanged event.
+     */
+    private function applyMaintenance(string $component, StatusMaintenance $maintenance, bool $configured, CarbonInterface $now): StatusComponent
+    {
+        $state = StatusComponent::query()->firstOrNew(['component' => $component], [
+            'status' => ComponentStatus::Operational,
+            'candidate_runs' => 0,
+        ]);
+
+        if ($state->status !== ComponentStatus::Maintenance) {
+            $state->changed_at = $now;
+        }
+
+        $state->status = ComponentStatus::Maintenance;
+        $state->message = $maintenance->title;
+        $state->configured = $configured;
+        $state->candidate_status = null;
+        $state->candidate_runs = 0;
+        $state->checked_at = $now;
+        $state->save();
+
+        return $state;
+    }
+
+    /**
+     * Active maintenance windows keyed by component. Fires MaintenanceStarted for windows that
+     * just began and MaintenanceEnded for windows that are over.
+     *
+     * @return array<string, StatusMaintenance>
+     */
+    private function maintenanceWindows(CarbonInterface $now): array
+    {
+        try {
+            StatusMaintenance::query()->active($now)->whereNull('announced_at')->get()
+                ->each(function (StatusMaintenance $maintenance) use ($now) {
+                    $maintenance->update(['announced_at' => $now]);
+                    $this->safely(fn () => event(new MaintenanceStarted($maintenance)));
+                });
+
+            StatusMaintenance::query()->where('ends_at', '<=', $now)->whereNull('ended_at')->get()
+                ->each(function (StatusMaintenance $maintenance) use ($now) {
+                    $maintenance->update(['ended_at' => $now, 'announced_at' => $maintenance->announced_at ?? $maintenance->starts_at]);
+                    $this->safely(fn () => event(new MaintenanceEnded($maintenance)));
+                });
+
+            return StatusMaintenance::activeByComponent($now);
+        } catch (Throwable $e) {
+            Log::warning('Status maintenance windows could not be read.', ['exception' => $e::class]);
+
+            return [];
+        }
+    }
+
+    private function safely(callable $callback): void
+    {
+        try {
+            $callback();
+        } catch (Throwable $e) {
+            Log::warning('A System Status listener failed.', ['exception' => $e::class]);
+        }
     }
 
     /**
@@ -415,6 +504,7 @@ class StatusService
             'runs' => $gapMinutes,
             'degraded_runs' => 0,
             'outage_runs' => $gapMinutes,
+            'maintenance_runs' => 0,
         ]]);
 
         $this->alert("⚠️ Scheduler: no status checks ran from {$lastRun->format('Y-m-d H:i')} to {$now->format('H:i')} ({$gapMinutes} min). Running again now.");
@@ -428,6 +518,7 @@ class StatusService
             'runs' => 1,
             'degraded_runs' => $status === ComponentStatus::Degraded ? 1 : 0,
             'outage_runs' => $status === ComponentStatus::MajorOutage ? 1 : 0,
+            'maintenance_runs' => $status === ComponentStatus::Maintenance ? 1 : 0,
         ];
     }
 
@@ -440,7 +531,7 @@ class StatusService
         DB::table('status_daily')->upsert(
             $rows,
             ['component', 'day'],
-            StatusSql::incrementOnConflict('status_daily', ['runs', 'degraded_runs', 'outage_runs']),
+            StatusSql::incrementOnConflict('status_daily', ['runs', 'degraded_runs', 'outage_runs', 'maintenance_runs']),
         );
     }
 

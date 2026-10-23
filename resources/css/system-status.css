@@ -9,6 +9,7 @@
     --sst-degraded: var(--warning, #f59e0b);
     --sst-partial: #f97316;
     --sst-major: var(--danger, #dc2626);
+    --sst-maintenance: var(--info, #2563eb);
     --sst-none: color-mix(in oklab, var(--border, #d1d5db) 70%, var(--surface-2, #f1f2f5));
     --sst-muted: var(--muted, #6b7280);
     --sst-fg: var(--page-fg, #111827);
@@ -444,6 +445,8 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
 .sst .sst-component[data-status="degraded"] .sst-dot { --sst-tone: var(--sst-degraded); }
 .sst .sst-dot[data-status="major_outage"],
 .sst .sst-component[data-status="major_outage"] .sst-dot { --sst-tone: var(--sst-major); }
+.sst .sst-dot[data-status="maintenance"],
+.sst .sst-component[data-status="maintenance"] .sst-dot { --sst-tone: var(--sst-maintenance); }
 .sst .sst-component[data-status="not_configured"] .sst-dot { --sst-tone: var(--sst-muted); }
 
 .sst .sst-component[data-problem="1"] .sst-dot::after {
@@ -683,6 +686,75 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     font-variant-numeric: tabular-nums;
 }
 
+/* ---------- maintenance ---------- */
+.sst .sst-maintenance-panel {
+    border-inline-start: 4px solid var(--sst-maintenance);
+}
+
+.sst .sst-maintenance-panel .sst-panel-title i {
+    color: var(--sst-maintenance);
+}
+
+.sst .sst-incident.sst-maintenance .sst-incident-marker,
+.sst .sst-incident.sst-maintenance[data-active="1"] .sst-incident-marker {
+    border-color: var(--sst-maintenance);
+}
+
+.sst .sst-incident.sst-maintenance[data-active="0"] .sst-incident-marker {
+    border-style: dashed;
+}
+
+.sst .sst-maintenance-end {
+    padding: 0;
+    margin-inline-start: auto;
+    font-size: .78rem;
+}
+
+/* ---------- forms ---------- */
+.sst.sst-form {
+    border: 0;
+    border-radius: var(--sst-radius);
+}
+
+.sst .sst-form-hint {
+    font-size: .85rem;
+    color: var(--sst-muted);
+}
+
+.sst .sst-component-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    gap: .75rem 1rem;
+    max-block-size: 16rem;
+    overflow: auto;
+    padding: .75rem;
+    border: 1px solid var(--sst-border);
+    border-radius: .5rem;
+}
+
+.sst .sst-picker-group {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+}
+
+.sst .sst-picker-group strong {
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--sst-muted);
+}
+
+.sst .sst-check {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    margin: 0;
+    font-size: .85rem;
+    font-weight: 400;
+    cursor: pointer;
+}
+
 /* ---------- skeleton ---------- */
 .sst .sst-skeleton {
     block-size: 180px;
@@ -826,6 +898,8 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
 .sst [data-level="partial"] { --sst-tone: var(--sst-partial); }
 .sst [data-status="major_outage"],
 .sst [data-level="major"] { --sst-tone: var(--sst-major); }
+.sst [data-status="maintenance"],
+.sst [data-level="maintenance"] { --sst-tone: var(--sst-maintenance); }
 .sst [data-status="not_configured"],
 .sst [data-level="none"],
 .sst [data-level="loading"] { --sst-tone: var(--sst-muted); }

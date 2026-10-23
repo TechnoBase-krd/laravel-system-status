@@ -14,7 +14,14 @@
 @section('content')
     <div class="content sst" id="sst"
          data-summary-url="{{ route('system_status.summary') }}"
-         data-component-url="{{ route('system_status.component', ['component' => '__component__']) }}">
+         data-component-url="{{ route('system_status.component', ['component' => '__component__']) }}"
+         data-can-manage="{{ ($canManage ?? false) ? '1' : '0' }}"
+         @if($canManage ?? false)
+         data-csrf="{{ csrf_token() }}"
+         data-maintenance-url="{{ route('system_status.maintenances.store') }}"
+         data-maintenance-end-url="{{ route('system_status.maintenances.end', ['maintenance' => '__id__']) }}"
+         @endif
+         >
 
         {{-- Overall status --}}
         <section class="sst-hero" id="sstHero" data-level="loading" aria-live="polite">
@@ -27,6 +34,12 @@
                 </div>
             </div>
             <div class="sst-hero-actions">
+                @if($canManage ?? false)
+                    <button type="button" class="btn sst-refresh" data-toggle="modal" data-target="#sstMaintenanceModal">
+                        <i class="fas fa-tools" aria-hidden="true"></i>
+                        <span>@lang('system-status::status.status_schedule_maintenance')</span>
+                    </button>
+                @endif
                 <span class="sst-countdown" id="sstCountdown"></span>
                 <button type="button" class="btn sst-refresh" id="sstRefresh">
                     <i class="fas fa-sync-alt" aria-hidden="true"></i>
@@ -82,9 +95,18 @@
                 <li><span class="sst-swatch" data-level="degraded"></span>@lang('system-status::status.status_degraded')</li>
                 <li><span class="sst-swatch" data-level="partial"></span>@lang('system-status::status.status_overall_partial')</li>
                 <li><span class="sst-swatch" data-level="major"></span>@lang('system-status::status.status_major_outage')</li>
+                <li><span class="sst-swatch" data-level="maintenance"></span>@lang('system-status::status.status_maintenance')</li>
                 <li><span class="sst-swatch" data-level="none"></span>@lang('system-status::status.status_no_data')</li>
             </ul>
         </div>
+
+        {{-- Active and upcoming maintenance --}}
+        <section class="sst-panel sst-maintenance-panel mb-4" id="sstMaintenancePanel" hidden>
+            <header class="sst-panel-head">
+                <h3 class="sst-panel-title"><i class="fas fa-tools" aria-hidden="true"></i> @lang('system-status::status.status_scheduled_maintenance')</h3>
+            </header>
+            <div class="sst-panel-body" id="sstMaintenances"></div>
+        </section>
 
         <div id="sstGroups" class="sst-groups">
             @for ($i = 0; $i < 3; $i++)
@@ -137,6 +159,22 @@
             </li>
         </template>
 
+        <template id="sstMaintenanceTemplate">
+            <article class="sst-incident sst-maintenance">
+                <span class="sst-incident-marker" aria-hidden="true"></span>
+                <div class="sst-incident-body">
+                    <div class="sst-incident-head">
+                        <strong class="sst-maintenance-title"></strong>
+                        <span class="sst-pill sst-maintenance-state" data-status="maintenance"></span>
+                        <button type="button" class="btn btn-link btn-sm sst-maintenance-end" hidden></button>
+                    </div>
+                    <p class="sst-incident-message sst-maintenance-components"></p>
+                    <p class="sst-incident-message sst-maintenance-message"></p>
+                    <small class="sst-incident-time sst-maintenance-time"></small>
+                </div>
+            </article>
+        </template>
+
         <template id="sstIncidentTemplate">
             <article class="sst-incident">
                 <span class="sst-incident-marker" aria-hidden="true"></span>
@@ -155,6 +193,62 @@
 @endsection
 
 @push(config('system-status.stacks.modals', 'modals'))
+    @if($canManage ?? false)
+        <div id="sstMaintenanceModal" class="modal fade" tabindex="-1" aria-labelledby="sstMaintenanceTitle">
+            <div class="modal-dialog modal-lg">
+                <form class="modal-content sst sst-form" id="sstMaintenanceForm" novalidate>
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="sstMaintenanceTitle">@lang('system-status::status.status_schedule_maintenance')</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="{{ __('system-status::status.close') }}">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="sst-form-hint">@lang('system-status::status.status_maintenance_hint')</p>
+                        <div class="alert alert-danger sst-form-error" hidden></div>
+                        <div class="form-group">
+                            <label for="sstMaintenanceTitleInput">@lang('system-status::status.status_form_title')</label>
+                            <input type="text" class="form-control" id="sstMaintenanceTitleInput" name="title" maxlength="200" required
+                                   value="{{ __('system-status::status.status_maintenance_default_title') }}">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-sm-6">
+                                <label for="sstMaintenanceStart">@lang('system-status::status.status_form_starts_at')</label>
+                                <input type="datetime-local" class="form-control" id="sstMaintenanceStart" name="starts_at" required>
+                            </div>
+                            <div class="form-group col-sm-6">
+                                <label for="sstMaintenanceEnd">@lang('system-status::status.status_form_ends_at')</label>
+                                <input type="datetime-local" class="form-control" id="sstMaintenanceEnd" name="ends_at" required>
+                            </div>
+                        </div>
+                        <fieldset class="form-group">
+                            <legend class="col-form-label">@lang('system-status::status.status_form_components')</legend>
+                            <div class="sst-component-picker">
+                                @foreach(($componentOptions ?? []) as $group)
+                                    <div class="sst-picker-group">
+                                        <strong>{{ $group['label'] }}</strong>
+                                        @foreach($group['components'] as $key => $label)
+                                            <label class="sst-check">
+                                                <input type="checkbox" name="components[]" value="{{ $key }}">
+                                                <span>{{ $label }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                @endforeach
+                            </div>
+                        </fieldset>
+                        <div class="form-group mb-0">
+                            <label for="sstMaintenanceMessage">@lang('system-status::status.status_form_message')</label>
+                            <textarea class="form-control" id="sstMaintenanceMessage" name="message" rows="3" maxlength="2000"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-dismiss="modal">@lang('system-status::status.close')</button>
+                        <button type="submit" class="btn btn-primary sst-submit">@lang('system-status::status.status_form_schedule')</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+
     <div id="sstDetailModal" class="modal fade" tabindex="-1" aria-labelledby="sstDetailTitle">
         <div class="modal-dialog modal-xl modal-dialog-scrollable">
             <div class="modal-content sst sst-detail">
@@ -276,6 +370,7 @@
                 degraded: 'fas fa-exclamation',
                 partial: 'fas fa-exclamation-triangle',
                 major: 'fas fa-times',
+                maintenance: 'fas fa-tools',
                 loading: 'fas fa-circle-notch',
             };
             const i18n = {
@@ -300,6 +395,15 @@
                 degraded: @json(__('system-status::status.status_degraded')),
                 majorOutage: @json(__('system-status::status.status_major_outage')),
                 partialOutage: @json(__('system-status::status.status_overall_partial')),
+                maintenance: @json(__('system-status::status.status_maintenance')),
+                maintenanceMinutes: @json(__('system-status::status.status_maintenance_minutes', ['minutes' => ':minutes'])),
+                maintenanceActive: @json(__('system-status::status.status_maintenance_active')),
+                maintenanceUpcoming: @json(__('system-status::status.status_maintenance_upcoming')),
+                maintenanceEnd: @json(__('system-status::status.status_maintenance_end')),
+                maintenanceCancel: @json(__('system-status::status.status_maintenance_cancel')),
+                affects: @json(__('system-status::status.status_affects', ['components' => ':components'])),
+                by: @json(__('system-status::status.status_by', ['name' => ':name'])),
+                saveFailed: @json(__('system-status::status.status_save_failed')),
                 today: @json(__('system-status::status.status_today')),
                 now: @json(__('system-status::status.status_now')),
             };
@@ -344,18 +448,19 @@
             }
 
             function isProblem(component) {
-                return component.configured && component.status !== 'operational';
+                return component.configured && component.status !== 'operational' && component.status !== 'maintenance';
             }
 
+            // Maintenance only shows for a group when nothing in it is worse.
             function worstStatus(components) {
-                const order = {operational: 0, degraded: 1, major_outage: 2};
+                const order = {operational: 0, maintenance: 0.5, degraded: 1, major_outage: 2};
                 return components.reduce(function (worst, c) {
-                    return c.configured && order[c.status] > order[worst] ? c.status : worst;
+                    return c.configured && (order[c.status] || 0) > order[worst] ? c.status : worst;
                 }, 'operational');
             }
 
             function statusLabel(status) {
-                return {operational: i18n.operational, degraded: i18n.degraded, major_outage: i18n.majorOutage}[status] || status;
+                return {operational: i18n.operational, degraded: i18n.degraded, major_outage: i18n.majorOutage, maintenance: i18n.maintenance}[status] || status;
             }
 
             /* ---------- tooltip ---------- */
@@ -394,6 +499,9 @@
                 }
                 if (slot.degraded_minutes > 0) {
                     lines.push(fill(i18n.degradedMinutes, {minutes: slot.degraded_minutes}));
+                }
+                if (slot.maintenance_minutes > 0) {
+                    lines.push(fill(i18n.maintenanceMinutes, {minutes: slot.maintenance_minutes}));
                 }
                 if (slot.requests !== null && slot.requests !== undefined) {
                     lines.push(i18n.requests + ': ' + numberFormat.format(slot.requests) + ' · ' + i18n.errors + ': ' + numberFormat.format(slot.errors || 0));
@@ -544,6 +652,133 @@
                 container.replaceChildren(fragment);
             }
 
+            function renderMaintenances(list) {
+                const panel = document.getElementById('sstMaintenancePanel');
+                const container = document.getElementById('sstMaintenances');
+                panel.hidden = !list.length;
+
+                const template = document.getElementById('sstMaintenanceTemplate');
+                const fragment = document.createDocumentFragment();
+                const canManage = root.dataset.canManage === '1';
+
+                list.forEach(function (item) {
+                    const node = template.content.firstElementChild.cloneNode(true);
+                    node.dataset.active = item.active ? '1' : '0';
+                    node.dataset.status = 'maintenance';
+                    setText(node, '.sst-maintenance-title', item.title);
+                    setText(node, '.sst-maintenance-state', item.active ? i18n.maintenanceActive : i18n.maintenanceUpcoming);
+                    setText(node, '.sst-maintenance-components', fill(i18n.affects, {
+                        components: item.components.map(function (c) { return c.label; }).join(', '),
+                    }));
+                    const message = setText(node, '.sst-maintenance-message', item.message || '');
+                    message.hidden = !item.message;
+                    setText(node, '.sst-maintenance-time', item.starts_at + ' → ' + item.ends_at
+                        + (item.created_by ? ' · ' + fill(i18n.by, {name: item.created_by}) : ''));
+
+                    const end = node.querySelector('.sst-maintenance-end');
+                    if (canManage) {
+                        end.hidden = false;
+                        end.textContent = item.active ? i18n.maintenanceEnd : i18n.maintenanceCancel;
+                        end.dataset.id = item.id;
+                    }
+                    fragment.appendChild(node);
+                });
+
+                container.replaceChildren(fragment);
+            }
+
+            /* ---------- write actions ---------- */
+            function send(method, url, data) {
+                return $.ajax({
+                    url: url,
+                    method: method,
+                    data: data ? JSON.stringify(data) : undefined,
+                    contentType: 'application/json',
+                    dataType: 'json',
+                    headers: {'X-CSRF-TOKEN': root.dataset.csrf || '', 'Accept': 'application/json'},
+                });
+            }
+
+            function showFormError(form, xhr) {
+                const box = form.querySelector('.sst-form-error');
+                const errors = xhr && xhr.responseJSON && xhr.responseJSON.errors;
+                const lines = errors ? Object.keys(errors).map(function (key) { return errors[key][0]; }) : [i18n.saveFailed];
+                box.replaceChildren();
+                lines.forEach(function (line) {
+                    const p = document.createElement('div');
+                    p.textContent = line;
+                    box.appendChild(p);
+                });
+                box.hidden = false;
+            }
+
+            function formData(form) {
+                const data = {};
+                new FormData(form).forEach(function (value, key) {
+                    if (key.slice(-2) === '[]') {
+                        key = key.slice(0, -2);
+                        (data[key] = data[key] || []).push(value);
+                    } else {
+                        data[key] = value;
+                    }
+                });
+                return data;
+            }
+
+            // datetime-local is the viewer's local time; send it with its offset.
+            function isoFromLocal(value) {
+                return value ? new Date(value).toISOString() : value;
+            }
+
+            function localInputValue(date) {
+                const pad = function (n) { return String(n).padStart(2, '0'); };
+                return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+                    + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+            }
+
+            function submitForm(form, method, url, prepare, done) {
+                const button = form.querySelector('.sst-submit');
+                const data = prepare(formData(form));
+                form.querySelector('.sst-form-error').hidden = true;
+                button.disabled = true;
+
+                send(method, url, data)
+                    .done(function () {
+                        $(form.closest('.modal')).modal('hide');
+                        form.reset();
+                        if (done) {
+                            done();
+                        }
+                        load();
+                    })
+                    .fail(function (xhr) { showFormError(form, xhr); })
+                    .always(function () { button.disabled = false; });
+            }
+
+            $('#sstMaintenanceModal').on('show.bs.modal', function () {
+                const now = new Date();
+                document.getElementById('sstMaintenanceStart').value = localInputValue(now);
+                document.getElementById('sstMaintenanceEnd').value = localInputValue(new Date(now.getTime() + 30 * 60000));
+                this.querySelector('.sst-form-error').hidden = true;
+            });
+
+            $(document).on('submit', '#sstMaintenanceForm', function (event) {
+                event.preventDefault();
+                submitForm(this, 'POST', root.dataset.maintenanceUrl, function (data) {
+                    data.starts_at = isoFromLocal(data.starts_at);
+                    data.ends_at = isoFromLocal(data.ends_at);
+                    return data;
+                });
+            });
+
+            $(document).on('click', '.sst-maintenance-end', function () {
+                const button = this;
+                button.disabled = true;
+                send('DELETE', root.dataset.maintenanceEndUrl.replace('__id__', button.dataset.id))
+                    .done(load)
+                    .fail(function () { button.disabled = false; });
+            });
+
             /* ---------- filter, search, collapse ---------- */
             function applyFilter() {
                 let visible = 0;
@@ -639,6 +874,7 @@
                         renderKpis(state.data);
                         renderGroups(state.data.groups);
                         renderIncidents(document.getElementById('sstIncidents'), state.data.incidents);
+                        renderMaintenances(state.data.maintenances || []);
                     })
                     .fail(function () {
                         const hero = document.getElementById('sstHero');

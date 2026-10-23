@@ -7,6 +7,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\View\View;
 use Technobase\SystemStatus\Actions\GetStatusComponentAction;
 use Technobase\SystemStatus\Actions\GetStatusSummaryAction;
+use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatusManagement;
 use Technobase\SystemStatus\Http\Requests\StatusSummaryRequest;
 use Technobase\SystemStatus\Support\StatusRegistry;
 
@@ -15,7 +16,7 @@ use Technobase\SystemStatus\Support\StatusRegistry;
  */
 class SystemStatusController extends Controller
 {
-    public function index(): View
+    public function index(StatusRegistry $registry): View
     {
         $extra = config('system-status.extra_css');
 
@@ -30,6 +31,14 @@ class SystemStatusController extends Controller
             'styles' => (string) file_get_contents(dirname(__DIR__, 3).'/resources/css/system-status.css'),
             // Optional branding: a CSS file of the application, added after the package styles.
             'extraStyles' => filled($extra) && is_file($extra) ? (string) file_get_contents($extra) : null,
+            'canManage' => AuthorizeSystemStatusManagement::allows(request()->user()),
+            // Component choices for the incident and maintenance forms, by group.
+            'componentOptions' => collect($registry->groups())->map(fn (array $components, string $group) => [
+                'label' => $registry->groupLabel($group),
+                'components' => collect(array_keys($components))
+                    ->mapWithKeys(fn (string $component) => [$component => $registry->label($component)])
+                    ->all(),
+            ])->all(),
         ]);
     }
 

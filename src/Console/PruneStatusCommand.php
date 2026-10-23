@@ -4,6 +4,7 @@ namespace Technobase\SystemStatus\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class PruneStatusCommand extends Command
 {
@@ -25,6 +26,9 @@ class PruneStatusCommand extends Command
             'status_incidents' => DB::table('status_incidents')
                 ->whereNotNull('resolved_at')
                 ->where('resolved_at', '<', now()->subDays($days['incidents']))->delete(),
+            'status_maintenances' => Schema::hasTable('status_maintenances')
+                ? DB::table('status_maintenances')->where('ends_at', '<', now()->subDays($days['incidents']))->delete()
+                : 0,
         ];
 
         foreach ($deleted as $table => $count) {

@@ -6,6 +6,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\ServiceProvider;
 use Technobase\SystemStatus\Console\ListStatusRoutesCommand;
+use Technobase\SystemStatus\Console\MaintenanceCommand;
 use Technobase\SystemStatus\Console\PruneStatusCommand;
 use Technobase\SystemStatus\Console\RunStatusChecksCommand;
 use Technobase\SystemStatus\Http\Middleware\RecordRouteHealth;
@@ -34,6 +35,7 @@ class SystemStatusServiceProvider extends ServiceProvider
                 RunStatusChecksCommand::class,
                 PruneStatusCommand::class,
                 ListStatusRoutesCommand::class,
+                MaintenanceCommand::class,
             ]);
 
             $this->publishes([

@@ -53,6 +53,7 @@
         .sst-bar[data-level="degraded"] { --bar-tone: #f59e0b; }
         .sst-bar[data-level="partial"] { --bar-tone: #f97316; }
         .sst-bar[data-level="major"] { --bar-tone: #dc2626; }
+        .sst-bar[data-level="maintenance"] { --bar-tone: #2563eb; }
 
         /* A thin line in the status colour under the bar. */
         .sst-bar::after {

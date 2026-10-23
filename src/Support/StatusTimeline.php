@@ -6,6 +6,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Models\StatusIncident;
+use Technobase\SystemStatus\Models\StatusMaintenance;
 
 /**
  * Short-range history for the System Status bars (last hour, 24 hours, 7 days), rebuilt from
@@ -38,6 +39,7 @@ class StatusTimeline
 
         $runSlots = $this->runSlots($start, $size);
         $incidents = $this->incidents($start, $end);
+        $maintenance = $this->maintenance($start, $end);
         // Traffic is stored in 5-minute buckets, so it is only shown for slots at least that long.
         $traffic = $size >= 300 ? $this->traffic($start, $size) : [];
 
@@ -52,28 +54,34 @@ class StatusTimeline
                 $slotEnd = min($slotStart + $size, now()->timestamp);
                 $index = intdiv($slotStart - $start, $size);
                 [$majorSeconds, $degradedSeconds] = $this->overlap($incidents[$component] ?? [], $slotStart, $slotEnd);
+                $maintenanceSeconds = $this->maintenanceOverlap($maintenance, $component, $slotStart, $slotEnd);
                 $hasRun = isset($runSlots[$index]);
                 $span = max(1, $slotEnd - $slotStart);
+                // Maintenance time does not count against uptime.
+                $countedSpan = max(0, $span - $maintenanceSeconds);
 
                 $level = match (true) {
-                    ! $hasRun && $majorSeconds === 0 && $degradedSeconds === 0 => 'none',
+                    ! $hasRun && $majorSeconds === 0 && $degradedSeconds === 0 && $maintenanceSeconds === 0 => 'none',
                     $majorSeconds * 2 >= $span => 'major',
                     $majorSeconds > 0 => 'partial',
                     $degradedSeconds > 0 => 'degraded',
+                    $maintenanceSeconds > 0 => 'maintenance',
                     default => 'ok',
                 };
 
                 if ($level !== 'none') {
-                    $covered += $span;
-                    $outage += min($span, $majorSeconds);
+                    $covered += $countedSpan;
+                    $outage += min($countedSpan, $majorSeconds);
                 }
 
                 $slots[] = [
                     'label' => $this->label($slotStart, $slotStart + $size, $size),
                     'level' => $level,
-                    'uptime' => $level === 'none' ? null : round(($span - min($span, $majorSeconds)) / $span * 100, 2),
+                    'uptime' => $level === 'none' ? null
+                        : ($countedSpan > 0 ? round(($countedSpan - min($countedSpan, $majorSeconds)) / $countedSpan * 100, 2) : 100.0),
                     'outage_minutes' => intdiv($majorSeconds + 59, 60),
                     'degraded_minutes' => intdiv($degradedSeconds + 59, 60),
+                    'maintenance_minutes' => intdiv($maintenanceSeconds + 59, 60),
                     'requests' => $traffic[$component][$index]['requests'] ?? null,
                     'errors' => $traffic[$component][$index]['errors'] ?? null,
                 ];
@@ -130,6 +138,32 @@ class StatusTimeline
             });
 
         return $incidents;
+    }
+
+    /**
+     * @return array<int, array{0: int, 1: int, 2: array<int, string>}> start, end, components
+     */
+    private function maintenance(int $start, int $end): array
+    {
+        return StatusMaintenance::query()
+            ->where('starts_at', '<', Carbon::createFromTimestamp($end, config('app.timezone')))
+            ->where('ends_at', '>', Carbon::createFromTimestamp($start, config('app.timezone')))
+            ->get()
+            ->map(fn (StatusMaintenance $m) => [$m->starts_at->timestamp, $m->ends_at->timestamp, (array) $m->components])
+            ->all();
+    }
+
+    private function maintenanceOverlap(array $windows, string $component, int $slotStart, int $slotEnd): int
+    {
+        $seconds = 0;
+
+        foreach ($windows as [$from, $to, $components]) {
+            if (in_array($component, $components, true)) {
+                $seconds += max(0, min($to, $slotEnd) - max($from, $slotStart));
+            }
+        }
+
+        return min(max(0, $slotEnd - $slotStart), $seconds);
     }
 
     /**

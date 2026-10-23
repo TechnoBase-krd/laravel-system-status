@@ -32,6 +32,9 @@ return [
         'roles' => ['Super Admin'],
         // A Gate ability name (e.g. 'viewSystemStatus'). When set, it replaces the role check.
         'gate' => null,
+        // A Gate ability for posting incidents, updates and postmortems and for scheduling
+        // maintenance from the page (e.g. 'manageSystemStatus'). null = everyone who can open it.
+        'manage_gate' => null,
     ],
     // A Blade layout of the application with @yield('title'), @yield('content') and the stacks
     // below, plus jQuery, the Bootstrap 4 modal plugin and Font Awesome. 'standalone' (or null)
