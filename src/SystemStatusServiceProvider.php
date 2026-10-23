@@ -5,6 +5,8 @@ namespace Technobase\SystemStatus;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Pulse\Livewire\Card;
+use Livewire\Livewire;
 use Technobase\SystemStatus\Console\DoctorCommand;
 use Technobase\SystemStatus\Console\ListStatusRoutesCommand;
 use Technobase\SystemStatus\Console\MaintenanceCommand;
@@ -60,6 +62,11 @@ class SystemStatusServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__.'/../resources/claude/SKILL.md' => base_path('.claude/skills/system-status/SKILL.md'),
             ], 'system-status-skill');
+        }
+
+        // Optional Laravel Pulse card: <livewire:system-status.pulse cols="4" />
+        if (class_exists(Card::class) && class_exists(Livewire::class)) {
+            Livewire::component('system-status.pulse', Pulse\SystemStatusCard::class);
         }
 
         if (config('system-status.schedule', true)) {
