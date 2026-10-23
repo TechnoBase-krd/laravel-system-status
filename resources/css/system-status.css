@@ -336,6 +336,9 @@
     box-shadow: var(--sst-shadow);
     overflow: hidden;
     animation: sst-enter .35s var(--sst-ease) both;
+    /* With many components, the browser skips drawing groups that are off screen. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 480px;
 }
 
 .sst .sst-group-head {
@@ -608,6 +611,59 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     padding: 1rem 1.25rem;
 }
 
+/* Past incidents: "Showing 10 of 240" and the Show more button. */
+.sst .sst-incident.is-new {
+    animation: sst-enter .4s cubic-bezier(.16, 1, .3, 1) both;
+    animation-delay: calc(var(--sst-i, 0) * 35ms);
+}
+
+.sst .sst-incidents-more {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    padding: .75rem 1.25rem;
+    border-block-start: 1px solid var(--sst-border);
+    font-size: .85rem;
+}
+
+.sst .sst-more-button {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .45rem 1rem;
+    border: 1px solid var(--sst-border);
+    border-radius: 999px;
+    color: var(--sst-accent);
+    background: var(--sst-surface);
+    font: inherit;
+    font-size: .8125rem;
+    font-weight: 600;
+    line-height: 1.25;
+    white-space: nowrap;
+    transition: background-color .15s var(--sst-ease), border-color .15s var(--sst-ease);
+}
+
+.sst .sst-more-button:hover,
+.sst .sst-more-button:focus-visible {
+    border-color: color-mix(in oklab, var(--sst-accent) 40%, var(--sst-border));
+    background: color-mix(in oklab, var(--sst-accent) 8%, var(--sst-surface));
+}
+
+.sst .sst-more-button[disabled] {
+    opacity: .6;
+    cursor: progress;
+}
+
+.sst .sst-more-button[disabled] i {
+    animation: sst-spin 1s linear infinite;
+}
+
+.sst .sst-more-button[disabled] i::before {
+    content: "\f110";
+}
+
 .sst .sst-empty-state {
     display: flex;
     align-items: center;
@@ -864,6 +920,15 @@ dialog.sst-sheet.is-open::backdrop {
     background: rgb(15 23 42 / .5);
 }
 
+dialog.sst-dialog::backdrop {
+    backdrop-filter: blur(0);
+    transition: background .3s var(--sst-ease), backdrop-filter .3s var(--sst-ease);
+}
+
+dialog.sst-dialog.is-open::backdrop {
+    backdrop-filter: blur(3px);
+}
+
 dialog.sst-dialog {
     inline-size: min(72rem, calc(100vw - 2rem));
     max-inline-size: none;
@@ -872,8 +937,10 @@ dialog.sst-dialog {
     border-radius: var(--sst-radius);
     overflow: hidden;
     opacity: 0;
-    transform: translateY(12px) scale(.98);
-    transition: opacity .22s var(--sst-ease), transform .22s var(--sst-ease);
+    transform: translateY(18px) scale(.96);
+    transform-origin: 50% 40%;
+    /* Fast start, soft landing. */
+    transition: opacity .26s cubic-bezier(.16, 1, .3, 1), transform .38s cubic-bezier(.16, 1, .3, 1);
 }
 
 dialog.sst-dialog.is-open {
@@ -980,6 +1047,60 @@ dialog.sst-sheet.is-open,
 }
 
 /* ---------- detail dialog ---------- */
+/* While loading: placeholders that keep the final size, so nothing jumps. */
+.sst .sst-shimmer,
+.sst-detail.is-loading .sst-kpi-value {
+    border-radius: .4rem;
+    background:
+        linear-gradient(90deg, transparent, rgb(255 255 255 / .5), transparent) 0 0 / 50% 100% no-repeat,
+        var(--sst-surface-2);
+    animation: sst-shimmer 1.3s linear infinite;
+}
+
+.sst-detail.is-loading .sst-kpi-value {
+    color: transparent;
+    inline-size: 5ch;
+}
+
+.sst .sst-shimmer {
+    display: block;
+    block-size: .8rem;
+}
+
+.sst .sst-skeleton-row td {
+    padding-block: .7rem;
+}
+
+.sst .sst-skeleton-row:nth-child(2) .sst-shimmer { inline-size: 80%; }
+.sst .sst-skeleton-row:nth-child(3) .sst-shimmer { inline-size: 60%; }
+
+/* Once loaded: the sections come in one after another. */
+.sst-detail.is-loaded .sst-detail-body > :not([hidden]) {
+    animation: sst-enter .42s cubic-bezier(.16, 1, .3, 1) both;
+    animation-delay: calc(var(--sst-i, 0) * 45ms);
+}
+
+.sst-detail.is-loaded .sst-kpi {
+    animation: sst-enter .42s cubic-bezier(.16, 1, .3, 1) both;
+    animation-delay: calc(var(--sst-i, 0) * 40ms);
+}
+
+/* Chart columns grow from the bottom, left to right. */
+.sst .sst-chart.is-filled .sst-chart-total {
+    transform-origin: 50% 100%;
+    animation: sst-grow .55s cubic-bezier(.16, 1, .3, 1) both;
+    animation-delay: calc(var(--sst-i, 0) * 14ms);
+}
+
+.sst .sst-chart.is-filled .sst-chart-limit {
+    animation: sst-fade .4s .35s both;
+}
+
+.sst-detail .sst-pill,
+.sst-detail .sst-dot {
+    transition: background-color .3s var(--sst-ease), color .3s var(--sst-ease);
+}
+
 .sst .sst-detail-message {
     --sst-tone: var(--sst-degraded);
     padding: .65rem .85rem;
@@ -1140,6 +1261,14 @@ dialog.sst-sheet.is-open,
     from { opacity: 0; transform: translate3d(0, 8px, 0); }
 }
 
+@keyframes sst-grow {
+    from { transform: scaleY(0); }
+}
+
+@keyframes sst-fade {
+    from { opacity: 0; }
+}
+
 @keyframes sst-pop {
     from { opacity: 0; transform: translateY(-4px) scale(.98); }
 }
@@ -1182,6 +1311,8 @@ dialog.sst-sheet.is-open,
 }
 
 @media (prefers-reduced-motion: reduce) {
+    dialog.sst-dialog,
+    dialog.sst-dialog::backdrop,
     .sst *,
     .sst *::before,
     .sst *::after {

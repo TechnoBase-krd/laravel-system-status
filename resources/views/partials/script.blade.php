@@ -60,6 +60,7 @@
             toastMaintenanceEnded: @json(__('system-status::status.status_toast_maintenance_ended')),
             today: @json(__('system-status::status.status_today')),
             now: @json(__('system-status::status.status_now')),
+            incidentsShown: @json(__('system-status::status.status_incidents_shown', ['shown' => ':shown', 'total' => ':total'])),
         };
         const numberFormat = new Intl.NumberFormat(document.documentElement.lang || undefined);
         const timeFormat = new Intl.DateTimeFormat(document.documentElement.lang || undefined, {weekday: 'short', hour: '2-digit', minute: '2-digit'});
@@ -69,6 +70,8 @@
         const REFRESH = @json((array) config('system-status.refresh_seconds', ['1h' => 20, 'default' => 60]));
 
         const state = {filter: 'all', search: '', range: readRange(), data: null, countdown: 0, loading: false};
+        // Past incidents: what is shown, and whether more pages exist.
+        const incidents = {list: [], total: 0, perPage: 10, hasMore: false, signature: '', loadingMore: false};
 
         /* ---------- helpers ---------- */
         function $(id) {
@@ -114,15 +117,20 @@
 
         function setText(parent, selector, text) {
             const node = parent.querySelector(selector);
-            if (node) {
-                node.textContent = text == null ? '' : String(text);
+            const value = text == null ? '' : String(text);
+            if (node && node.textContent !== value) {
+                node.textContent = value;
             }
             return node;
         }
 
         function setPill(node, status, label) {
-            node.dataset.status = status;
-            node.textContent = label;
+            if (node.dataset.status !== status) {
+                node.dataset.status = status;
+            }
+            if (node.textContent !== label) {
+                node.textContent = label;
+            }
         }
 
         function isProblem(component) {
@@ -305,8 +313,10 @@
         }
 
         on('mouseover', '.sst-bar', function (event) {
-            if (this._sstLines && !this.contains(event.relatedTarget)) {
-                showTooltip(this, this._sstLines);
+            // The lines are built on hover, not for every bar on every refresh.
+            const lines = this._sstLines || (this._sstSlot && slotLines(this._sstSlot));
+            if (lines && !this.contains(event.relatedTarget)) {
+                showTooltip(this, lines);
             }
         });
         on('mouseout', '.sst-bar', function (event) {
@@ -317,13 +327,26 @@
         window.addEventListener('scroll', hideTooltip, {passive: true});
 
         /* ---------- rendering ---------- */
+        // Reuses the existing bars when the count is the same and only changes what differs.
         function renderBars(container, days) {
+            const bars = container.children;
+            if (bars.length === days.length) {
+                days.forEach(function (day, index) {
+                    const bar = bars[index];
+                    if (bar.dataset.level !== day.level) {
+                        bar.dataset.level = day.level;
+                    }
+                    bar._sstSlot = day;
+                });
+                return;
+            }
+
             const fragment = document.createDocumentFragment();
             days.forEach(function (day) {
                 const bar = document.createElement('span');
                 bar.className = 'sst-bar';
                 bar.dataset.level = day.level;
-                bar._sstLines = slotLines(day);
+                bar._sstSlot = day;
                 fragment.appendChild(bar);
             });
             container.replaceChildren(fragment);
@@ -353,7 +376,8 @@
 
             $('sstKpiUptime').textContent = uptime === null ? '—' : uptime.toFixed(2) + '%';
             $('sstKpiUptimeLabel').textContent = data.range.uptime_label;
-            $('sstKpiIncidents').textContent = numberFormat.format(data.incidents.filter(function (i) { return i.ongoing; }).length);
+            const open = data.incidents_meta ? data.incidents_meta.open : data.incidents.filter(function (i) { return i.ongoing; }).length;
+            $('sstKpiIncidents').textContent = numberFormat.format(open);
             $('sstKpiAffected').textContent = numberFormat.format(problems);
             $('sstKpiComponents').textContent = numberFormat.format(configured.length);
             const problemCount = $('sstProblemCount');
@@ -361,7 +385,78 @@
             problemCount.dataset.zero = problems === 0 ? '1' : '0';
         }
 
+        function fillGroup(groupNode, group) {
+            const configured = group.components.filter(function (c) { return c.configured; });
+            const ok = configured.filter(function (c) { return c.status === 'operational'; }).length;
+            const worst = worstStatus(group.components);
+
+            groupNode.dataset.status = worst;
+            setText(groupNode, '.sst-group-title', group.label);
+            setText(groupNode, '.sst-group-summary', fill(i18n.groupSummary, {ok: ok, total: configured.length}));
+            setPill(groupNode.querySelector('.sst-group-pill'), worst, statusLabel(worst));
+        }
+
+        function fillComponent(node, component) {
+            // Nothing to do when this component's data did not change since the last refresh.
+            const signature = JSON.stringify(component) + state.data.range.key;
+            if (node._sstSignature === signature) {
+                return;
+            }
+            node._sstSignature = signature;
+
+            const status = component.configured ? component.status : 'not_configured';
+            node.dataset.status = status;
+            node.dataset.problem = isProblem(component) ? '1' : '0';
+            node.dataset.search = (component.label + ' ' + component.key).toLowerCase();
+
+            const name = setText(node, '.sst-component-name', component.label);
+            name.dataset.component = component.key;
+            setPill(node.querySelector('.sst-pill'), status, component.status_label);
+
+            const uptime = setText(node, '.sst-component-uptime', component.uptime === null ? '' : fill(i18n.uptime, {value: component.uptime}));
+            uptime.dataset.slaMissed = component.sla_missed ? '1' : '0';
+            uptime.title = component.sla_target ? fill(i18n.slaTarget, {target: component.sla_target}) : '';
+
+            const menu = node.querySelector('.sst-component-menu');
+            if (menu) {
+                menu.dataset.component = component.key;
+                menu.dataset.label = component.label;
+                menu.setAttribute('aria-label', component.label);
+            }
+
+            const message = setText(node, '.sst-component-message', component.message || '');
+            message.hidden = !component.message;
+
+            renderBars(node.querySelector('.sst-bars'), component.days);
+            setText(node, '.sst-range-start', state.data.range.start_label);
+            setText(node, '.sst-range-end', state.data.range.key === '90d' ? i18n.today : i18n.now);
+        }
+
+        // Group and component keys in order: when they stay the same, the page is updated in place.
+        function layoutKey(groups) {
+            return groups.map(function (group) {
+                return group.key + ':' + group.components.map(function (c) { return c.key; }).join(',');
+            }).join('|');
+        }
+
         function renderGroups(groups) {
+            const container = $('sstGroups');
+            const key = layoutKey(groups);
+
+            if (container.dataset.layout === key) {
+                const groupNodes = container.querySelectorAll(':scope > .sst-group');
+                groups.forEach(function (group, groupIndex) {
+                    const groupNode = groupNodes[groupIndex];
+                    fillGroup(groupNode, group);
+                    const nodes = groupNode.querySelectorAll('.sst-component');
+                    group.components.forEach(function (component, index) {
+                        fillComponent(nodes[index], component);
+                    });
+                });
+                applyFilter();
+                return;
+            }
+
             const groupTemplate = $('sstGroupTemplate');
             const componentTemplate = $('sstComponentTemplate');
             const fragment = document.createDocumentFragment();
@@ -369,15 +464,8 @@
 
             groups.forEach(function (group) {
                 const groupNode = groupTemplate.content.firstElementChild.cloneNode(true);
-                const configured = group.components.filter(function (c) { return c.configured; });
-                const ok = configured.filter(function (c) { return c.status === 'operational'; }).length;
-                const worst = worstStatus(group.components);
-
                 groupNode.dataset.group = group.key;
-                groupNode.dataset.status = worst;
-                setText(groupNode, '.sst-group-title', group.label);
-                setText(groupNode, '.sst-group-summary', fill(i18n.groupSummary, {ok: ok, total: configured.length}));
-                setPill(groupNode.querySelector('.sst-group-pill'), worst, statusLabel(worst));
+                fillGroup(groupNode, group);
 
                 const isCollapsed = collapsed.indexOf(group.key) !== -1;
                 groupNode.classList.toggle('is-collapsed', isCollapsed);
@@ -386,45 +474,22 @@
                 const list = groupNode.querySelector('.sst-components');
                 group.components.forEach(function (component) {
                     const node = componentTemplate.content.firstElementChild.cloneNode(true);
-                    const status = component.configured ? component.status : 'not_configured';
-                    node.dataset.status = status;
-                    node.dataset.problem = isProblem(component) ? '1' : '0';
-                    node.dataset.search = (component.label + ' ' + component.key).toLowerCase();
-
-                    const name = setText(node, '.sst-component-name', component.label);
-                    name.dataset.component = component.key;
-                    setPill(node.querySelector('.sst-pill'), status, component.status_label);
-
-                    const uptime = setText(node, '.sst-component-uptime', component.uptime === null ? '' : fill(i18n.uptime, {value: component.uptime}));
-                    uptime.dataset.slaMissed = component.sla_missed ? '1' : '0';
-                    uptime.title = component.sla_target ? fill(i18n.slaTarget, {target: component.sla_target}) : '';
-
-                    const menu = node.querySelector('.sst-component-menu');
-                    if (menu) {
-                        menu.dataset.component = component.key;
-                        menu.dataset.label = component.label;
-                        menu.setAttribute('aria-label', component.label);
-                    }
-
-                    const message = setText(node, '.sst-component-message', component.message || '');
-                    message.hidden = !component.message;
-
-                    renderBars(node.querySelector('.sst-bars'), component.days);
-                    setText(node, '.sst-range-start', state.data.range.start_label);
-                    setText(node, '.sst-range-end', state.data.range.key === '90d' ? i18n.today : i18n.now);
+                    fillComponent(node, component);
                     list.appendChild(node);
                 });
 
                 fragment.appendChild(groupNode);
             });
 
-            $('sstGroups').replaceChildren(fragment);
+            container.replaceChildren(fragment);
+            container.dataset.layout = key;
             applyFilter();
         }
 
         // manage: show the update / postmortem buttons (not inside the detail dialog).
-        function renderIncidents(container, incidents, manage) {
-            if (!incidents.length) {
+        // append: add to the incidents already shown (the "Show more" button).
+        function renderIncidents(container, incidents, manage, append) {
+            if (!incidents.length && !append) {
                 const empty = document.createElement('p');
                 empty.className = 'sst-empty-state';
                 const icon = document.createElement('i');
@@ -441,7 +506,7 @@
             const fragment = document.createDocumentFragment();
             const showActions = manage && canManage;
 
-            incidents.forEach(function (incident) {
+            incidents.forEach(function (incident, index) {
                 const node = template.content.firstElementChild.cloneNode(true);
                 node.dataset.ongoing = incident.ongoing ? '1' : '0';
                 node.dataset.status = incident.severity;
@@ -485,12 +550,96 @@
                 editPostmortem.hidden = !(showActions && !incident.ongoing);
                 node.querySelector('.sst-incident-actions').hidden = addUpdate.hidden && editPostmortem.hidden;
                 node._sstIncident = incident;
+                if (append) {
+                    node.classList.add('is-new');
+                    node.style.setProperty('--sst-i', index);
+                }
 
                 fragment.appendChild(node);
             });
 
-            container.replaceChildren(fragment);
+            append ? container.appendChild(fragment) : container.replaceChildren(fragment);
         }
+
+        /* ---------- past incidents: first page with the summary, more on request ---------- */
+        function renderIncidentList(list, meta) {
+            incidents.list = list;
+            incidents.total = meta.total;
+            incidents.hasMore = meta.has_more;
+            incidents.perPage = meta.per_page || incidents.perPage;
+
+            // Skip the redraw when nothing changed, so a refresh does not reset the list.
+            const signature = JSON.stringify(list);
+            if (signature !== incidents.signature) {
+                incidents.signature = signature;
+                renderIncidents($('sstIncidents'), list, true);
+            }
+            renderIncidentsFooter();
+        }
+
+        function renderIncidentsFooter() {
+            $('sstIncidentsMore').hidden = incidents.total <= incidents.perPage && !incidents.hasMore;
+            $('sstIncidentsShown').textContent = fill(i18n.incidentsShown, {
+                shown: numberFormat.format(incidents.list.length),
+                total: numberFormat.format(incidents.total),
+            });
+            const button = $('sstIncidentsMoreButton');
+            button.hidden = !incidents.hasMore;
+            button.disabled = incidents.loadingMore;
+        }
+
+        // Called on every refresh. When more pages were opened, they are reloaded together.
+        function refreshIncidents(data) {
+            const meta = data.incidents_meta || {total: data.incidents.length, has_more: false, per_page: data.incidents.length || 10};
+            const shown = incidents.list.length;
+
+            if (shown <= meta.per_page) {
+                renderIncidentList(data.incidents, meta);
+                return Promise.resolve();
+            }
+
+            return getJson(root.dataset.incidentsUrl, {page: 1, per_page: Math.min(100, shown)})
+                .then(function (response) {
+                    renderIncidentList(response.data, {
+                        total: response.meta.total,
+                        has_more: response.meta.has_more,
+                        per_page: meta.per_page,
+                    });
+                })
+                .catch(function () {
+                    renderIncidentList(data.incidents, meta);
+                });
+        }
+
+        $('sstIncidentsMoreButton').addEventListener('click', function () {
+            if (incidents.loadingMore || !incidents.hasMore) {
+                return;
+            }
+            incidents.loadingMore = true;
+            renderIncidentsFooter();
+
+            const page = Math.floor(incidents.list.length / incidents.perPage) + 1;
+            getJson(root.dataset.incidentsUrl, {page: page, per_page: incidents.perPage})
+                .then(function (response) {
+                    // New incidents may have shifted the pages: skip any already shown.
+                    const seen = {};
+                    incidents.list.forEach(function (incident) { seen[incident.id] = true; });
+                    const added = response.data.filter(function (incident) { return !seen[incident.id]; });
+
+                    incidents.list = incidents.list.concat(added);
+                    incidents.signature = JSON.stringify(incidents.list);
+                    incidents.total = response.meta.total;
+                    incidents.hasMore = response.meta.has_more;
+                    renderIncidents($('sstIncidents'), added, true, true);
+                })
+                .catch(function () {
+                    toast(i18n.loadFailed, 'error');
+                })
+                .finally(function () {
+                    incidents.loadingMore = false;
+                    renderIncidentsFooter();
+                });
+        });
 
         function renderMaintenances(list) {
             $('sstMaintenancePanel').hidden = !list.length;
@@ -606,8 +755,8 @@
                     renderHero(state.data);
                     renderKpis(state.data);
                     renderGroups(state.data.groups);
-                    renderIncidents($('sstIncidents'), state.data.incidents, true);
                     renderMaintenances(state.data.maintenances || []);
+                    return refreshIncidents(state.data);
                 })
                 .catch(function () {
                     $('sstHero').dataset.level = 'major';
@@ -680,9 +829,10 @@
             }
 
             const fragment = document.createDocumentFragment();
-            hourly.forEach(function (hour) {
+            hourly.forEach(function (hour, index) {
                 const column = document.createElement('span');
                 column.className = 'sst-chart-col sst-bar';
+                column.style.setProperty('--sst-i', index);
                 column._sstLines = [hour.hour, i18n.requests + ': ' + numberFormat.format(hour.requests), i18n.errors + ': ' + numberFormat.format(hour.errors)];
 
                 const total = document.createElement('span');
@@ -708,9 +858,10 @@
             const max = Math.max.apply(null, hourly.map(function (h) { return h.p95 || 0; }).concat([limit || 0]));
 
             const fragment = document.createDocumentFragment();
-            hourly.forEach(function (hour) {
+            hourly.forEach(function (hour, index) {
                 const column = document.createElement('span');
                 column.className = 'sst-chart-col sst-bar';
+                column.style.setProperty('--sst-i', index);
                 column._sstLines = hour.p95
                     ? [hour.hour, 'p95: ' + numberFormat.format(hour.p95) + ' ms', 'p50: ' + numberFormat.format(hour.p50) + ' ms']
                     : [hour.hour, i18n.noData];
@@ -738,29 +889,106 @@
             container.replaceChildren(fragment);
         }
 
-        function resetDetail() {
+        function skeletonRows(tbody, columns) {
+            const fragment = document.createDocumentFragment();
+            for (let i = 0; i < 3; i++) {
+                const tr = document.createElement('tr');
+                tr.className = 'sst-skeleton-row';
+                const td = document.createElement('td');
+                td.colSpan = columns;
+                const line = document.createElement('span');
+                line.className = 'sst-shimmer';
+                td.appendChild(line);
+                tr.appendChild(td);
+                fragment.appendChild(tr);
+            }
+            tbody.replaceChildren(fragment);
+        }
+
+        // Counts a number up from 0 for a livelier fill; plain text with reduced motion.
+        function countUp(node, value, format) {
+            const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (reduced || !value) {
+                node.textContent = format(value);
+                return;
+            }
+            const started = performance.now();
+            const duration = 600;
+            (function step(now) {
+                const progress = Math.min(1, (now - started) / duration);
+                const eased = 1 - Math.pow(1 - progress, 3);
+                node.textContent = format(progress < 1 ? value * eased : value);
+                if (progress < 1 && node.isConnected) {
+                    requestAnimationFrame(step);
+                }
+            })(started);
+        }
+
+        // Fills the header from the page's data at once, so the dialog never opens empty.
+        function resetDetail(preview) {
+            const dialog = $('sstDetail');
+            dialog.classList.remove('is-loaded');
+            dialog.classList.add('is-loading');
+
             ['sstDetailRequests', 'sstDetailErrors', 'sstDetailRate', 'sstDetailAvg', 'sstDetailP95'].forEach(function (id) {
                 $(id).textContent = '—';
             });
-            $('sstDetailTitle').textContent = '';
-            $('sstDetailPill').textContent = '';
-            $('sstDetailMessage').hidden = true;
+            $('sstDetailTitle').textContent = preview ? preview.label : '';
+            $('sstDetailDot').dataset.status = preview ? (preview.configured ? preview.status : 'not_configured') : '';
+            setPill($('sstDetailPill'), preview ? (preview.configured ? preview.status : 'not_configured') : '', preview ? preview.status_label : '');
+            const message = $('sstDetailMessage');
+            message.textContent = preview && preview.message ? preview.message : '';
+            message.hidden = !(preview && preview.message);
             $('sstDetailSignal').hidden = true;
-            ['sstDetailRoutes', 'sstDetailChecks', 'sstDetailIncidents'].forEach(function (id) {
-                $(id).replaceChildren();
-            });
+
+            skeletonRows($('sstDetailRoutes'), 7);
+            skeletonRows($('sstDetailChecks'), 5);
+            const incidentsBox = $('sstDetailIncidents');
+            const line = document.createElement('span');
+            line.className = 'sst-shimmer';
+            line.style.blockSize = '3rem';
+            incidentsBox.replaceChildren(line);
+
             ['sstDetailChart', 'sstDetailLatency'].forEach(function (id) {
                 $(id).replaceChildren();
+                $(id).classList.remove('is-filled');
                 $(id).classList.add('is-loading');
             });
         }
 
+        function findComponent(key) {
+            if (!state.data) {
+                return null;
+            }
+            return allComponents(state.data).filter(function (c) { return c.key === key; })[0] || null;
+        }
+
+        // Plays the "filled" animation: sections one after another, then the chart bars.
+        function revealDetail() {
+            const dialog = $('sstDetail');
+            Array.prototype.forEach.call(dialog.querySelectorAll('.sst-detail-body > *'), function (node, index) {
+                node.style.setProperty('--sst-i', index);
+            });
+            Array.prototype.forEach.call(dialog.querySelectorAll('.sst-kpi'), function (node, index) {
+                node.style.setProperty('--sst-i', index);
+            });
+            dialog.classList.remove('is-loading');
+            dialog.classList.add('is-loaded');
+        }
+
+        let detailRequest = 0;
+
         function openDetail(component) {
-            resetDetail();
+            const request = ++detailRequest;
+            resetDetail(findComponent(component));
             openDialog($('sstDetail'));
 
             getJson(root.dataset.componentUrl.replace('__component__', encodeURIComponent(component)))
                 .then(function (response) {
+                    // A newer dialog was opened meanwhile: drop this answer.
+                    if (request !== detailRequest) {
+                        return;
+                    }
                     const data = response.data;
                     const requests = data.hourly.reduce(function (sum, h) { return sum + h.requests; }, 0);
                     const errors = data.hourly.reduce(function (sum, h) { return sum + h.errors; }, 0);
@@ -775,16 +1003,33 @@
                     message.textContent = data.message || '';
                     message.hidden = !data.message;
 
-                    $('sstDetailRequests').textContent = numberFormat.format(requests);
-                    $('sstDetailErrors').textContent = numberFormat.format(errors);
-                    $('sstDetailRate').textContent = requests ? (errors / requests * 100).toFixed(1) + '%' : '—';
-                    $('sstDetailAvg').textContent = routeRequests ? Math.round(weightedMs / routeRequests) + ' ms' : '—';
-                    $('sstDetailP95').textContent = data.latency && data.latency.p95 !== null ? numberFormat.format(data.latency.p95) + ' ms' : '—';
+                    const whole = function (value) { return numberFormat.format(Math.round(value)); };
+                    countUp($('sstDetailRequests'), requests, whole);
+                    countUp($('sstDetailErrors'), errors, whole);
+                    if (requests) {
+                        countUp($('sstDetailRate'), errors / requests * 100, function (value) { return value.toFixed(1) + '%'; });
+                    } else {
+                        $('sstDetailRate').textContent = '—';
+                    }
+                    if (routeRequests) {
+                        countUp($('sstDetailAvg'), weightedMs / routeRequests, function (value) { return Math.round(value) + ' ms'; });
+                    } else {
+                        $('sstDetailAvg').textContent = '—';
+                    }
+                    if (data.latency && data.latency.p95 !== null) {
+                        countUp($('sstDetailP95'), data.latency.p95, function (value) { return whole(value) + ' ms'; });
+                    } else {
+                        $('sstDetailP95').textContent = '—';
+                    }
 
-                    $('sstDetailChart').classList.remove('is-loading');
+                    ['sstDetailChart', 'sstDetailLatency'].forEach(function (id) {
+                        $(id).classList.remove('is-loading');
+                        $(id).classList.add('is-filled');
+                    });
                     renderChart($('sstDetailChart'), data.hourly);
-                    $('sstDetailLatency').classList.remove('is-loading');
                     renderLatency($('sstDetailLatency'), data.hourly, data.latency ? data.latency.degraded_p95_ms : null);
+                    $('sstDetailRoutes').replaceChildren();
+                    $('sstDetailChecks').replaceChildren();
 
                     const signalBox = $('sstDetailSignal');
                     if (data.signal.calls > 0 || data.signal.last_failure) {
@@ -826,13 +1071,21 @@
                     });
 
                     renderIncidents($('sstDetailIncidents'), data.incidents, false);
+                    revealDetail();
                 })
                 .catch(function () {
+                    if (request !== detailRequest) {
+                        return;
+                    }
                     $('sstDetailChart').classList.remove('is-loading');
                     $('sstDetailLatency').classList.remove('is-loading');
+                    $('sstDetailRoutes').replaceChildren();
+                    $('sstDetailChecks').replaceChildren();
+                    $('sstDetailIncidents').replaceChildren();
                     const message = $('sstDetailMessage');
                     message.textContent = i18n.loadFailed;
                     message.hidden = false;
+                    revealDetail();
                 });
         }
 
