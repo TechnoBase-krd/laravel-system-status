@@ -9,6 +9,7 @@ use Technobase\SystemStatus\Console\ListStatusRoutesCommand;
 use Technobase\SystemStatus\Console\MaintenanceCommand;
 use Technobase\SystemStatus\Console\PruneStatusCommand;
 use Technobase\SystemStatus\Console\RunStatusChecksCommand;
+use Technobase\SystemStatus\Console\TestAlertCommand;
 use Technobase\SystemStatus\Http\Middleware\RecordRouteHealth;
 
 class SystemStatusServiceProvider extends ServiceProvider
@@ -36,6 +37,7 @@ class SystemStatusServiceProvider extends ServiceProvider
                 PruneStatusCommand::class,
                 ListStatusRoutesCommand::class,
                 MaintenanceCommand::class,
+                TestAlertCommand::class,
             ]);
 
             $this->publishes([

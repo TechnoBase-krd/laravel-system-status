@@ -142,5 +142,19 @@ class IncidentService
         } catch (Throwable $e) {
             Log::warning('An IncidentUpdated listener failed.', ['exception' => $e::class]);
         }
+
+        $this->alerter->event('incident.'.$action, [
+            'id' => $incident->id,
+            'component' => $incident->component,
+            'label' => $this->name($incident),
+            'severity' => $incident->severity->value,
+            'title' => $incident->title,
+            'state' => $incident->state?->value,
+            'source' => $incident->source,
+            'started_at' => $incident->started_at->toIso8601String(),
+            'resolved_at' => $incident->resolved_at?->toIso8601String(),
+            'update' => $update ? ['state' => $update->state->value, 'message' => $update->message, 'author' => $update->author] : null,
+            'postmortem' => $incident->postmortem,
+        ]);
     }
 }

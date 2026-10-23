@@ -47,6 +47,7 @@ class StatusService
     public function run(): array
     {
         $now = now();
+        $this->alerter->begin();
         $this->recordSchedulerGap($now);
 
         $flushed = 0;
@@ -81,6 +82,13 @@ class StatusService
         }
 
         $this->addDaily($daily);
+        $this->sendReminders($now, $maintenance);
+        $this->alerter->flush([], $this->registry);
+        $this->alerter->flappingEnded(function (string $component) {
+            $status = StatusComponent::query()->where('component', $component)->value('status');
+
+            return $this->registry->label($component, 'en').' is '.str_replace('_', ' ', $status instanceof ComponentStatus ? $status->value : (string) $status);
+        });
 
         return ['flushed_minutes' => $flushed, 'probes_run' => $probesRun, 'changes' => $changes];
     }
@@ -419,12 +427,14 @@ class StatusService
                 ->each(function (StatusMaintenance $maintenance) use ($now) {
                     $maintenance->update(['announced_at' => $now]);
                     $this->safely(fn () => event(new MaintenanceStarted($maintenance)));
+                    $this->alerter->event('maintenance.started', $this->maintenancePayload($maintenance));
                 });
 
             StatusMaintenance::query()->where('ends_at', '<=', $now)->whereNull('ended_at')->get()
                 ->each(function (StatusMaintenance $maintenance) use ($now) {
                     $maintenance->update(['ended_at' => $now, 'announced_at' => $maintenance->announced_at ?? $maintenance->starts_at]);
                     $this->safely(fn () => event(new MaintenanceEnded($maintenance)));
+                    $this->alerter->event('maintenance.ended', $this->maintenancePayload($maintenance));
                 });
 
             return StatusMaintenance::activeByComponent($now);
@@ -432,6 +442,54 @@ class StatusService
             Log::warning('Status maintenance windows could not be read.', ['exception' => $e::class]);
 
             return [];
+        }
+    }
+
+    private function maintenancePayload(StatusMaintenance $maintenance): array
+    {
+        return [
+            'id' => $maintenance->id,
+            'title' => $maintenance->title,
+            'components' => array_values((array) $maintenance->components),
+            'starts_at' => $maintenance->starts_at->toIso8601String(),
+            'ends_at' => $maintenance->ends_at->toIso8601String(),
+        ];
+    }
+
+    /**
+     * "Still down" reminders for major outages open longer than alerts.reminder_minutes, repeated
+     * every reminder_minutes until resolved.
+     *
+     * @param  array<string, StatusMaintenance>  $maintenance
+     */
+    private function sendReminders(CarbonInterface $now, array $maintenance): void
+    {
+        $minutes = (int) config('system-status.alerts.reminder_minutes');
+        if ($minutes <= 0) {
+            return;
+        }
+
+        $due = $now->copy()->subMinutes($minutes);
+
+        try {
+            StatusIncident::query()->open()
+                ->where('severity', ComponentStatus::MajorOutage->value)
+                ->where('started_at', '<=', $due)
+                ->where(fn ($query) => $query->whereNull('reminded_at')->orWhere('reminded_at', '<=', $due))
+                ->get()
+                ->each(function (StatusIncident $incident) use ($now, $maintenance) {
+                    $incident->update(['reminded_at' => $now]);
+
+                    if (isset($maintenance[$incident->component])) {
+                        return;
+                    }
+
+                    $duration = StatusDuration::format((int) $incident->started_at->diffInMinutes($now));
+                    $what = $incident->title ?: $incident->message;
+                    $this->alerter->send(trim("🔴 Still down: {$this->registry->label($incident->component, 'en')} for {$duration}. ".($what ?? '')));
+                });
+        } catch (Throwable $e) {
+            Log::warning('Status reminders could not be sent.', ['exception' => $e::class]);
         }
     }
 
@@ -460,6 +518,15 @@ class StatusService
         } catch (Throwable $e) {
             Log::warning('A ComponentStatusChanged listener failed.', ['exception' => $e::class]);
         }
+
+        $this->alerter->event('component.status_changed', [
+            'component' => $component,
+            'label' => $this->registry->label($component, 'en'),
+            'previous' => $previous->value,
+            'current' => $current->value,
+            'message' => $message,
+            'changed_at' => $now->toIso8601String(),
+        ]);
     }
 
     private function recordIncident(
@@ -478,7 +545,7 @@ class StatusService
             if ($open) {
                 $open->update(['resolved_at' => $now]);
                 $duration = StatusDuration::format((int) $open->started_at->diffInMinutes($now));
-                $this->alert("✅ {$name} recovered after {$duration}.");
+                $this->alerter->change($component, "✅ {$name} recovered after {$duration}.", $name);
             }
 
             return;
@@ -504,7 +571,7 @@ class StatusService
 
         $icon = $current === ComponentStatus::MajorOutage ? '🔴' : '🟠';
         $label = $current === ComponentStatus::MajorOutage ? 'major outage' : 'degraded';
-        $this->alert(trim("{$icon} {$name}: {$label}. ".($message ?? '')));
+        $this->alerter->change($component, trim("{$icon} {$name}: {$label}. ".($message ?? '')), $name);
     }
 
     /**

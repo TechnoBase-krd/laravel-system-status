@@ -111,15 +111,33 @@ return [
     // User-Agent of the HTTP probes; allow it in a firewall (e.g. Cloudflare) in front of the app.
     'probe_user_agent' => 'SystemStatusProbe/1.0',
 
-    // Status changes are sent to this Telegram chat (laravel-notification-channels/telegram,
-    // bot token in services.telegram-bot-api.token). Empty = logged only. Never sent in `local`.
-    // Every confirmed change also fires Technobase\SystemStatus\Events\ComponentStatusChanged,
-    // so the application can send alerts anywhere else.
+    // Status changes, incident updates and reminders are sent to the channels below. Nothing is
+    // sent in `local` (the alert is logged). Every confirmed change also fires
+    // Technobase\SystemStatus\Events\ComponentStatusChanged, so the application can react in code.
+    // Check the setup with: php artisan status:test-alert
     'alerts' => [
-        // SYSTEM_STATUS_ALERTS_ENABLED=false turns the Telegram alerts off (the event still fires).
+        // SYSTEM_STATUS_ALERTS_ENABLED=false turns every alert off (the events still fire).
         'enabled' => (bool) env('SYSTEM_STATUS_ALERTS_ENABLED', true),
+        // Any of: telegram, mail, slack, discord.
+        'channels' => ['telegram'],
+        // telegram: laravel-notification-channels/telegram, bot token in services.telegram-bot-api.token.
         'telegram_chat_id' => env('SYSTEM_STATUS_TELEGRAM_CHAT_ID'),
+        // mail: the application's default mailer.
+        'mail_to' => array_filter(explode(',', (string) env('SYSTEM_STATUS_ALERT_MAIL_TO', ''))),
+        // slack / discord: incoming webhook URLs.
+        'slack_webhook' => env('SYSTEM_STATUS_SLACK_WEBHOOK'),
+        'discord_webhook' => env('SYSTEM_STATUS_DISCORD_WEBHOOK'),
         'prefix' => '['.env('APP_NAME', 'Laravel').' status]',
+        // JSON POSTed on component.status_changed, incident.posted / .updated / .postmortem and
+        // maintenance.started / .ended. With a secret, the body is signed in the
+        // X-System-Status-Signature header (sha256=<hmac>). E.g. [['url' => '…', 'secret' => '…']].
+        'webhooks' => [],
+        // A component that changes status this many times within `minutes` sends one "flapping"
+        // alert, then stays quiet until it is stable for `minutes`. null turns this off.
+        'flap' => ['changes' => 4, 'minutes' => 30],
+        // Repeat "still down" for a major outage open longer than this, every this many minutes.
+        // null = no reminders.
+        'reminder_minutes' => env('SYSTEM_STATUS_REMINDER_MINUTES'),
     ],
 
     'retention_days' => [
