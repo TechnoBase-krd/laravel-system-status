@@ -5,6 +5,7 @@ namespace Technobase\SystemStatus;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\ServiceProvider;
+use Technobase\SystemStatus\Console\DoctorCommand;
 use Technobase\SystemStatus\Console\ListStatusRoutesCommand;
 use Technobase\SystemStatus\Console\MaintenanceCommand;
 use Technobase\SystemStatus\Console\PruneStatusCommand;
@@ -40,6 +41,7 @@ class SystemStatusServiceProvider extends ServiceProvider
                 MaintenanceCommand::class,
                 TestAlertCommand::class,
                 ReportCommand::class,
+                DoctorCommand::class,
             ]);
 
             $this->publishes([
