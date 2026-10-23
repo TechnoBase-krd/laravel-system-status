@@ -23,6 +23,7 @@ it('reads free disk space', function () {
 });
 
 it('counts recently failed jobs', function () {
+    config()->set('queue.failed.database', 'testing');
     expect((new FailedJobsProbe)->run()->isSkipped())->toBeTrue();
 
     Schema::create('failed_jobs', function (Blueprint $table) {

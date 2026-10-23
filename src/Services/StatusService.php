@@ -86,16 +86,22 @@ class StatusService
             );
         }
 
-        $this->affectedBy = $this->dependencyFailures($evaluated, $maintenance);
+        $this->affectedBy = [];
+        $applied = [];
 
-        foreach ($evaluated as $component => [$status, $message, $configured]) {
-            if (isset($this->affectedBy[$component])) {
-                $message = trim('Affected by '.$this->registry->label($this->affectedBy[$component], 'en').($message ? ' — '.$message : ''));
+        // Dependencies first, so a component sees its dependency's status after this run.
+        foreach ($this->dependencyOrder(array_keys($evaluated)) as $component) {
+            [$status, $message, $configured] = $evaluated[$component];
+
+            if (! isset($maintenance[$component]) && ($root = $this->failingDependency($component, $status, $evaluated, $applied, $maintenance))) {
+                $this->affectedBy[$component] = $root;
+                $message = trim('Affected by '.$this->registry->label($root, 'en').($message ? ' — '.$message : ''));
             }
 
             $state = isset($maintenance[$component])
                 ? $this->applyMaintenance($component, $maintenance[$component], $configured, $now)
                 : $this->applyStatus($component, $status, $message, $configured, $now, $changes);
+            $applied[$component] = $state->status;
             $daily[] = $this->dailyRow($component, $state->status, $now);
         }
 
@@ -361,43 +367,65 @@ class StatusService
     }
 
     /**
-     * Failing components whose dependency ('depends_on') is failing too, mapped to the root
-     * cause: the first failing dependency up the chain that does not fail because of another.
+     * Component keys with each one's dependencies ('depends_on') before it; cycles are broken.
+     *
+     * @param  array<int, string>  $components
+     * @return array<int, string>
+     */
+    private function dependencyOrder(array $components): array
+    {
+        $definitions = $this->registry->components();
+        $ordered = [];
+        $visiting = [];
+
+        $visit = function (string $component) use (&$visit, &$ordered, &$visiting, $definitions, $components) {
+            if (isset($ordered[$component]) || isset($visiting[$component]) || ! in_array($component, $components, true)) {
+                return;
+            }
+
+            $visiting[$component] = true;
+            foreach ((array) ($definitions[$component]['definition']['depends_on'] ?? []) as $dependency) {
+                $visit((string) $dependency);
+            }
+            unset($visiting[$component]);
+            $ordered[$component] = true;
+        };
+
+        foreach ($components as $component) {
+            $visit($component);
+        }
+
+        return array_keys($ordered);
+    }
+
+    /**
+     * The root cause when a failing component depends on a component that is failing too (its
+     * confirmed status after this run, or what this run observed); null otherwise.
      *
      * @param  array<string, array{0: ComponentStatus, 1: ?string, 2: bool}>  $evaluated
+     * @param  array<string, ComponentStatus>  $applied
      * @param  array<string, StatusMaintenance>  $maintenance
-     * @return array<string, string>
      */
-    private function dependencyFailures(array $evaluated, array $maintenance): array
+    private function failingDependency(string $component, ComponentStatus $observed, array $evaluated, array $applied, array $maintenance): ?string
     {
-        $components = $this->registry->components();
-        $failing = fn (string $c) => isset($evaluated[$c]) && ! isset($maintenance[$c]) && $evaluated[$c][0]->isProblem();
-        $direct = [];
+        if (! $observed->isProblem()) {
+            return null;
+        }
 
-        foreach ($components as $component => $entry) {
-            if (! $failing($component)) {
+        $dependencies = (array) ($this->registry->components()[$component]['definition']['depends_on'] ?? []);
+
+        foreach ($dependencies as $dependency) {
+            if ($dependency === $component || ! isset($evaluated[$dependency]) || isset($maintenance[$dependency])) {
                 continue;
             }
 
-            foreach ((array) ($entry['definition']['depends_on'] ?? []) as $dependency) {
-                if ($dependency !== $component && $failing($dependency)) {
-                    $direct[$component] = $dependency;
-                    break;
-                }
+            $failing = $evaluated[$dependency][0]->isProblem() || ($applied[$dependency] ?? null)?->isProblem();
+            if ($failing) {
+                return $this->affectedBy[$dependency] ?? $dependency;
             }
         }
 
-        $roots = [];
-        foreach ($direct as $component => $parent) {
-            $seen = [$component => true];
-            while (isset($direct[$parent]) && ! isset($seen[$parent])) {
-                $seen[$parent] = true;
-                $parent = $direct[$parent];
-            }
-            $roots[$component] = $parent;
-        }
-
-        return $roots;
+        return null;
     }
 
     /**

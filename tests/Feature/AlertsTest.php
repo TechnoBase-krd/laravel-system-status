@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -15,6 +16,8 @@ beforeEach(function () {
     Http::fake();
     config()->set('system-status.alerts.channels', ['slack']);
     config()->set('system-status.alerts.slack_webhook', 'https://hooks.slack.test/abc');
+    // The tests jump in time; a jump is not a scheduler gap here.
+    config()->set('system-status.thresholds.heartbeat_stale_minutes', 1000);
 });
 
 afterEach(fn () => Carbon::setTestNow());
@@ -96,7 +99,7 @@ it('reminds about a long major outage', function () {
 
     $reminders = array_values(array_filter(slackTexts(), fn ($t) => str_contains($t, 'Still down')));
     expect($reminders)->toHaveCount(1)
-        ->and(StatusIncident::query()->sole()->reminded_at)->not->toBeNull();
+        ->and(StatusIncident::query()->where('component', 'database')->sole()->reminded_at)->not->toBeNull();
 });
 
 it('posts signed webhook events on a status change', function () {
@@ -121,6 +124,7 @@ it('posts signed webhook events on a status change', function () {
 it('tests the alert setup from the console', function () {
     $this->artisan('status:test-alert')->expectsTable(['Channel', 'Result'], [['slack', 'sent']])->assertSuccessful();
 
+    Http::swap(new Factory);
     Http::fake(['*' => Http::response('nope', 500)]);
     $this->artisan('status:test-alert')->assertFailed();
 });

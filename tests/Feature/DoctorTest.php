@@ -29,6 +29,6 @@ it('fails on unknown dependencies, broken probes and a stopped scheduler', funct
 
     $this->artisan('status:doctor')
         ->expectsOutputToContain('Unknown depends_on: database → nope')
-        ->expectsOutputToContain('last ran 30 min ago')
+        ->expectsOutputToContain('Is the scheduler running?')
         ->assertFailed();
 });

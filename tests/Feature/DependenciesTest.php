@@ -35,7 +35,7 @@ it('folds dependent failures into one alert and marks them affected', function (
 
     $messages = slackMessages();
     expect($messages)->toHaveCount(1)
-        ->and($messages[0])->toContain('Database: major outage')->toContain('Also affected: Api Orders, Api Other');
+        ->and($messages[0])->toContain('Database: major outage')->toContain('Also affected: Orders, Other API');
 
     $orders = StatusComponent::query()->where('component', 'api_orders')->first();
     expect($orders->affected_by)->toBe('database')
@@ -56,7 +56,7 @@ it('sends one recovery alert for the whole chain', function () {
 
     $messages = slackMessages();
     expect($messages)->toHaveCount(2)
-        ->and($messages[1])->toContain('Database recovered')->not->toContain('Api Orders recovered');
+        ->and($messages[1])->toContain('Database recovered')->not->toContain('Orders recovered');
 });
 
 it('alerts when a dependent component stays down after its dependency recovers', function () {
@@ -67,13 +67,13 @@ it('alerts when a dependent component stays down after its dependency recovers',
     probeReturns('database', ProbeResult::ok());
     runChecks(2);
 
-    expect(last(slackMessages()))->toContain('Api Orders: still major outage after Database recovered');
+    expect(last(slackMessages()))->toContain('Orders: still major outage after Database recovered');
 });
 
 it('alerts normally when only the dependent component fails', function () {
     probeReturns('api_orders', ProbeResult::outage('down'));
     runChecks(2);
 
-    expect(slackMessages()[0])->toContain('Api Orders: major outage')
+    expect(slackMessages()[0])->toContain('Orders: major outage')
         ->and(StatusComponent::query()->where('component', 'api_orders')->value('affected_by'))->toBeNull();
 });
