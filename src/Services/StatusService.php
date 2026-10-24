@@ -3,36 +3,28 @@
 namespace Technobase\SystemStatus\Services;
 
 use Carbon\CarbonInterface;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Events\ComponentStatusChanged;
 use Technobase\SystemStatus\Events\MaintenanceEnded;
 use Technobase\SystemStatus\Events\MaintenanceStarted;
-use Technobase\SystemStatus\Jobs\StatusHeartbeatJob;
-use Technobase\SystemStatus\Models\StatusCheck;
 use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
-use Technobase\SystemStatus\Probes\Probe;
-use Technobase\SystemStatus\Probes\ProbeResult;
-use Technobase\SystemStatus\Support\LatencyHistogram;
 use Technobase\SystemStatus\Support\StatusAlerter;
-use Technobase\SystemStatus\Support\StatusDuration;
+use Technobase\SystemStatus\Support\StatusHeartbeat;
 use Technobase\SystemStatus\Support\StatusMetrics;
 use Technobase\SystemStatus\Support\StatusRegistry;
-use Technobase\SystemStatus\Support\StatusSignal;
-use Technobase\SystemStatus\Support\StatusSql;
 use Throwable;
 
 /**
  * One run of the System Status checks (`status:check`, every minute): flush traffic counters,
- * run the probes that are due, work out each component's status, confirm changes after
- * `confirm_runs` runs in a row, open or resolve incidents, alert Telegram and update the daily
- * rollup. All state is in the database, so a Redis outage is still detected and stored.
+ * run the probes that are due (ProbeRunner), work out each component's status
+ * (ComponentEvaluator), confirm changes after `confirm_runs` runs in a row, open or resolve
+ * incidents (IncidentRecorder), alert and update the daily rollup (DailyRollup). All state is in
+ * the database, so a Redis outage is still detected and stored. The outcome of each run is kept
+ * in StatusHeartbeat, so a run that fails is visible too.
  */
 class StatusService
 {
@@ -40,6 +32,11 @@ class StatusService
         private readonly StatusMetrics $metrics,
         private readonly StatusRegistry $registry,
         private readonly StatusAlerter $alerter,
+        private readonly DeployService $deploys,
+        private readonly ProbeRunner $probes,
+        private readonly ComponentEvaluator $evaluator,
+        private readonly IncidentRecorder $incidents,
+        private readonly DailyRollup $rollup,
     ) {}
 
     /**
@@ -56,8 +53,37 @@ class StatusService
     public function run(): array
     {
         $now = now();
+
+        try {
+            $result = $this->check($now);
+        } catch (Throwable $e) {
+            StatusHeartbeat::failed($e, $now);
+
+            throw $e;
+        }
+
+        StatusHeartbeat::succeeded($now);
+
+        return $result;
+    }
+
+    /**
+     * Rows of the 90-day history, keyed by component.
+     *
+     * @return Collection<string, Collection<int, object>>
+     */
+    public function dailyHistory(int $days = 90): Collection
+    {
+        return $this->rollup->history($days);
+    }
+
+    /**
+     * @return array{flushed_minutes: int, probes_run: int, changes: array<int, string>}
+     */
+    private function check(CarbonInterface $now): array
+    {
         $this->alerter->begin();
-        $this->recordSchedulerGap($now);
+        $this->incidents->recordSchedulerGap($now);
 
         $flushed = 0;
         try {
@@ -66,18 +92,18 @@ class StatusService
             Log::warning('Status metrics flush failed.', ['exception' => $e::class]);
         }
 
-        [$probeResults, $probesRun] = $this->runProbes($now);
-        $this->dispatchQueueHeartbeats($now);
+        [$probeResults, $probesRun] = $this->probes->run($now);
+        $this->probes->dispatchQueueHeartbeats($now);
         $maintenance = $this->maintenanceWindows($now);
-        $traffic = $this->traffic($now);
-        $manual = $this->openManualIncidents();
+        $traffic = $this->evaluator->traffic($now);
+        $manual = $this->evaluator->openManualIncidents();
 
         $changes = [];
         $daily = [];
         $evaluated = [];
 
         foreach ($this->registry->components() as $component => $entry) {
-            $evaluated[$component] = $this->evaluate(
+            $evaluated[$component] = $this->evaluator->evaluate(
                 $component,
                 $entry['definition'],
                 $probeResults[$component] ?? [],
@@ -102,11 +128,12 @@ class StatusService
                 ? $this->applyMaintenance($component, $maintenance[$component], $configured, $now)
                 : $this->applyStatus($component, $status, $message, $configured, $now, $changes);
             $applied[$component] = $state->status;
-            $daily[] = $this->dailyRow($component, $state->status, $now);
+            $daily[] = $this->rollup->row($component, $state->status, $now);
         }
 
-        $this->addDaily($daily);
-        $this->sendReminders($now, $maintenance);
+        $this->rollup->add($daily);
+        $this->incidents->sendReminders($now, $maintenance);
+        $this->safely(fn () => $this->deploys->compareDue($now));
         $this->alerter->flush($this->affectedBy, $this->registry);
         $this->alerter->flappingEnded(function (string $component) {
             $status = StatusComponent::query()->where('component', $component)->value('status');
@@ -115,301 +142,6 @@ class StatusService
         });
 
         return ['flushed_minutes' => $flushed, 'probes_run' => $probesRun, 'changes' => $changes];
-    }
-
-    /**
-     * Runs every probe that is due and returns, per component, the latest usable result of
-     * each of its probes (fresh or from an earlier run).
-     *
-     * @return array{0: array<string, array<int, ProbeResult>>, 1: int}
-     */
-    private function runProbes(CarbonInterface $now): array
-    {
-        $latest = StatusCheck::query()
-            ->where('checked_at', '>=', $now->copy()->subHour())
-            ->orderByDesc('checked_at')
-            ->get()
-            ->unique(fn (StatusCheck $check) => $check->component.'|'.$check->probe)
-            ->keyBy(fn (StatusCheck $check) => $check->component.'|'.$check->probe);
-
-        $results = [];
-        $probesRun = 0;
-
-        foreach ($this->registry->components() as $component => $entry) {
-            foreach ($entry['definition']['probes'] ?? [] as $index => $definition) {
-                $every = max(1, (int) ($definition['every'] ?? 1));
-
-                try {
-                    /** @var Probe $probe */
-                    $probe = app()->make($definition['class'], $definition['with'] ?? []);
-                    $probeKey = mb_substr($index.'|'.$probe->name(), 0, 128);
-                } catch (Throwable $e) {
-                    $results[$component][] = ProbeResult::outage('Probe could not be created ('.class_basename($e).')');
-
-                    continue;
-                }
-
-                $last = $latest->get($component.'|'.$probeKey);
-                $isDue = ! $last || $last->checked_at->lte($now->copy()->subSeconds($every * 60 - 15));
-
-                if ($isDue) {
-                    $result = $this->runProbe($probe);
-                    $probesRun++;
-
-                    StatusCheck::query()->create([
-                        'component' => $component,
-                        'probe' => $probeKey,
-                        'status' => $result->status,
-                        'response_ms' => $result->responseMs,
-                        'message' => $result->toArray()['message'],
-                        'checked_at' => $now,
-                    ]);
-
-                    $results[$component][] = $result;
-                } elseif ($last->checked_at->gte($now->copy()->subSeconds($every * 60 * 3 + 120))) {
-                    $results[$component][] = new ProbeResult($last->status, $last->message, $last->response_ms);
-                }
-            }
-        }
-
-        return [$results, $probesRun];
-    }
-
-    private function runProbe(Probe $probe): ProbeResult
-    {
-        $startedAt = microtime(true);
-
-        try {
-            $result = $probe->run();
-        } catch (Throwable $e) {
-            $result = ProbeResult::outage('Check failed ('.class_basename($e).')');
-        }
-
-        $result->responseMs = (int) round((microtime(true) - $startedAt) * 1000);
-
-        return $result;
-    }
-
-    private function dispatchQueueHeartbeats(CarbonInterface $now): void
-    {
-        foreach (config('system-status.queues', []) as $queue) {
-            try {
-                Cache::add(StatusHeartbeatJob::firstDispatchKey($queue['queue']), $now->timestamp, now()->addDay());
-
-                StatusHeartbeatJob::dispatch($queue['queue'], $now->timestamp)
-                    ->onConnection($queue['connection'] ?? null)
-                    ->onQueue($queue['queue']);
-            } catch (Throwable $e) {
-                Log::warning('Status heartbeat job could not be dispatched.', [
-                    'queue' => $queue['queue'],
-                    'exception' => $e::class,
-                ]);
-            }
-        }
-    }
-
-    /**
-     * Requests and errors per component over the window, split into routes and signals.
-     *
-     * @return array<string, array{routes?: array{requests: int, errors: int, latency: array<int, int>}, signal?: array{requests: int, errors: int}}>
-     */
-    private function traffic(CarbonInterface $now): array
-    {
-        $since = $now->copy()->subMinutes((int) config('system-status.thresholds.window_minutes', 15));
-
-        $rows = DB::table('status_route_buckets')
-            ->where('bucket_at', '>=', $since)
-            ->selectRaw("component, CASE WHEN route = '".StatusMetrics::SIGNAL_ROUTE."' THEN 1 ELSE 0 END AS is_signal")
-            ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors, '.LatencyHistogram::sumSelect())
-            ->groupByRaw('component, is_signal')
-            ->get();
-
-        $traffic = [];
-        foreach ($rows as $row) {
-            $traffic[$row->component][(int) $row->is_signal === 1 ? 'signal' : 'routes'] = [
-                'requests' => (int) $row->requests,
-                'errors' => (int) $row->errors,
-                'latency' => LatencyHistogram::fromRow($row),
-            ];
-        }
-
-        // Errors from the work itself (a deploy, a migration) must not count once a maintenance
-        // window is over: only traffic recorded after the window ended is used.
-        foreach ($this->recentlyEndedMaintenance($since) as $component => $endedAt) {
-            unset($traffic[$component]);
-
-            DB::table('status_route_buckets')
-                ->where('component', $component)
-                ->where('bucket_at', '>=', $endedAt)
-                ->selectRaw("CASE WHEN route = '".StatusMetrics::SIGNAL_ROUTE."' THEN 1 ELSE 0 END AS is_signal")
-                ->selectRaw('SUM(requests) AS requests, SUM(errors) AS errors, '.LatencyHistogram::sumSelect())
-                ->groupByRaw('is_signal')
-                ->get()
-                ->each(function ($row) use (&$traffic, $component) {
-                    $traffic[$component][(int) $row->is_signal === 1 ? 'signal' : 'routes'] = [
-                        'requests' => (int) $row->requests,
-                        'errors' => (int) $row->errors,
-                        'latency' => LatencyHistogram::fromRow($row),
-                    ];
-                });
-        }
-
-        return $traffic;
-    }
-
-    /**
-     * Components whose maintenance window ended inside the traffic window, with the end time.
-     *
-     * @return array<string, CarbonInterface>
-     */
-    private function recentlyEndedMaintenance(CarbonInterface $since): array
-    {
-        $ended = [];
-
-        try {
-            StatusMaintenance::query()->where('ends_at', '>', $since)->where('ends_at', '<=', now())->get()
-                ->each(function (StatusMaintenance $maintenance) use (&$ended) {
-                    foreach ((array) $maintenance->components as $component) {
-                        if (! isset($ended[$component]) || $maintenance->ends_at->gt($ended[$component])) {
-                            $ended[$component] = $maintenance->ends_at;
-                        }
-                    }
-                });
-        } catch (Throwable $e) {
-            Log::warning('Status maintenance windows could not be read.', ['exception' => $e::class]);
-        }
-
-        return $ended;
-    }
-
-    /**
-     * @return array{0: ComponentStatus, 1: ?string, 2: bool} status, message, configured
-     */
-    private function evaluate(string $component, array $definition, array $probeResults, array $traffic, ?StatusIncident $manual = null): array
-    {
-        $sources = [];
-
-        // An open incident posted by hand holds the component at its severity until resolved.
-        if ($manual) {
-            $sources[] = [$manual->severity, $manual->title ?: $manual->message];
-        }
-
-        foreach ($probeResults as $result) {
-            if (! $result->isSkipped()) {
-                $sources[] = [$result->status, $result->message];
-            }
-        }
-
-        $configured = empty($definition['probes'])
-            || ! empty($sources)
-            || count($probeResults) < count($definition['probes']);
-
-        if (isset($traffic['routes'])) {
-            $sources[] = $this->rateSource(
-                $component,
-                $traffic['routes'],
-                (int) $this->registry->threshold($component, 'min_requests', 20),
-                ':errors of :requests requests failed (5xx) in the last :minutes min',
-            );
-            $sources[] = $this->latencySource($component, $traffic['routes']);
-        }
-
-        if (isset($traffic['signal'])) {
-            $source = $this->rateSource(
-                $component,
-                $traffic['signal'],
-                (int) $this->registry->threshold($component, 'min_signals', 3),
-                ':errors of :requests calls failed in the last :minutes min',
-            );
-
-            if ($source[0] !== ComponentStatus::Operational && ($last = StatusSignal::lastFailure($component))) {
-                $source[1] .= ' — last: '.$last['reason'];
-            }
-
-            $sources[] = $source;
-        }
-
-        $status = ComponentStatus::worst(array_column($sources, 0));
-        $message = null;
-
-        foreach ($sources as [$sourceStatus, $sourceMessage]) {
-            if ($sourceStatus === $status && $status !== ComponentStatus::Operational) {
-                $message = $sourceMessage;
-                break;
-            }
-        }
-
-        return [$status, $message, $configured];
-    }
-
-    /**
-     * The most severe open manual incident of each component.
-     *
-     * @return array<string, StatusIncident>
-     */
-    private function openManualIncidents(): array
-    {
-        try {
-            return StatusIncident::query()->open()->manual()->get()
-                ->sortByDesc(fn (StatusIncident $incident) => $incident->severity->severity())
-                ->unique('component')
-                ->keyBy('component')
-                ->all();
-        } catch (Throwable $e) {
-            Log::warning('Manual status incidents could not be read.', ['exception' => $e::class]);
-
-            return [];
-        }
-    }
-
-    /**
-     * @return array{0: ComponentStatus, 1: ?string}
-     */
-    private function rateSource(string $component, array $counts, int $minimum, string $template): array
-    {
-        if ($counts['requests'] < $minimum || $counts['errors'] === 0) {
-            return [ComponentStatus::Operational, null];
-        }
-
-        $rate = $counts['errors'] / $counts['requests'] * 100;
-        $message = strtr($template, [
-            ':errors' => $counts['errors'],
-            ':requests' => $counts['requests'],
-            ':minutes' => (int) config('system-status.thresholds.window_minutes', 15),
-        ]).' ('.round($rate).'%)';
-
-        return match (true) {
-            $rate >= (float) $this->registry->threshold($component, 'outage_error_rate', 25) => [ComponentStatus::MajorOutage, $message],
-            $rate >= (float) $this->registry->threshold($component, 'degraded_error_rate', 5) => [ComponentStatus::Degraded, $message],
-            default => [ComponentStatus::Operational, null],
-        };
-    }
-
-    /**
-     * Slowness without errors: the p95 response time over the window against
-     * latency_degraded_p95_ms / latency_outage_p95_ms (both off by default).
-     *
-     * @return array{0: ComponentStatus, 1: ?string}
-     */
-    private function latencySource(string $component, array $counts): array
-    {
-        $degradedMs = $this->registry->threshold($component, 'latency_degraded_p95_ms');
-        $outageMs = $this->registry->threshold($component, 'latency_outage_p95_ms');
-
-        if ((! $degradedMs && ! $outageMs)
-            || $counts['requests'] < (int) $this->registry->threshold($component, 'min_requests', 20)
-            || ($p95 = LatencyHistogram::percentile($counts['latency'] ?? [], 95)) === null) {
-            return [ComponentStatus::Operational, null];
-        }
-
-        $minutes = (int) config('system-status.thresholds.window_minutes', 15);
-        $message = fn (int $limit) => "p95 response time {$p95} ms in the last {$minutes} min (limit {$limit} ms)";
-
-        return match (true) {
-            $outageMs && $p95 > (int) $outageMs => [ComponentStatus::MajorOutage, $message((int) $outageMs)],
-            $degradedMs && $p95 > (int) $degradedMs => [ComponentStatus::Degraded, $message((int) $degradedMs)],
-            default => [ComponentStatus::Operational, null],
-        };
     }
 
     /**
@@ -505,7 +237,7 @@ class StatusService
 
             if ($observed === ComponentStatus::Operational) {
                 // An incident left open from before the window is over now.
-                $this->recordIncident($component, ComponentStatus::Operational, $observed, $message, $now);
+                $this->incidents->record($component, ComponentStatus::Operational, $observed, $message, $now, $this->affectedBy[$component] ?? null);
             }
         }
 
@@ -519,7 +251,7 @@ class StatusService
             if ($wasAffectedBy && ! $state->affected_by && $observed->isProblem()) {
                 StatusIncident::query()->open()->where('component', $component)->update(['affected_by' => null]);
                 $name = $this->registry->label($component, 'en');
-                $this->alerter->change($component, trim("🟠 {$name}: still {$this->statusWords($observed)} after ".$this->registry->label($wasAffectedBy, 'en').' recovered. '.($message ?? '')), $name);
+                $this->alerter->change($component, trim("🟠 {$name}: still ".IncidentRecorder::statusWords($observed).' after '.$this->registry->label($wasAffectedBy, 'en').' recovered. '.($message ?? '')), $name);
             }
 
             return $state;
@@ -543,7 +275,7 @@ class StatusService
             $state->candidate_runs = 0;
 
             $changes[] = $component.': '.$previous->value.' -> '.$observed->value;
-            $this->recordIncident($component, $previous, $observed, $message, $now);
+            $this->incidents->record($component, $previous, $observed, $message, $now, $this->affectedBy[$component] ?? null);
         }
 
         $state->save();
@@ -623,43 +355,6 @@ class StatusService
         ];
     }
 
-    /**
-     * "Still down" reminders for major outages open longer than alerts.reminder_minutes, repeated
-     * every reminder_minutes until resolved.
-     *
-     * @param  array<string, StatusMaintenance>  $maintenance
-     */
-    private function sendReminders(CarbonInterface $now, array $maintenance): void
-    {
-        $minutes = (int) config('system-status.alerts.reminder_minutes');
-        if ($minutes <= 0) {
-            return;
-        }
-
-        $due = $now->copy()->subMinutes($minutes);
-
-        try {
-            StatusIncident::query()->open()
-                ->where('severity', ComponentStatus::MajorOutage->value)
-                ->where('started_at', '<=', $due)
-                ->where(fn ($query) => $query->whereNull('reminded_at')->orWhere('reminded_at', '<=', $due))
-                ->get()
-                ->each(function (StatusIncident $incident) use ($now, $maintenance) {
-                    $incident->update(['reminded_at' => $now]);
-
-                    if (isset($maintenance[$incident->component])) {
-                        return;
-                    }
-
-                    $duration = StatusDuration::format((int) $incident->started_at->diffInMinutes($now));
-                    $what = $incident->title ?: $incident->message;
-                    $this->alerter->send(trim("🔴 Still down: {$this->registry->label($incident->component, 'en')} for {$duration}. ".($what ?? '')));
-                });
-        } catch (Throwable $e) {
-            Log::warning('Status reminders could not be sent.', ['exception' => $e::class]);
-        }
-    }
-
     private function safely(callable $callback): void
     {
         try {
@@ -694,152 +389,5 @@ class StatusService
             'message' => $message,
             'changed_at' => $now->toIso8601String(),
         ]);
-    }
-
-    private function recordIncident(
-        string $component,
-        ComponentStatus $previous,
-        ComponentStatus $current,
-        ?string $message,
-        CarbonInterface $now,
-    ): void {
-        $open = StatusIncident::query()->open()->automatic()->where('component', $component)->latest('started_at')->first();
-        $manual = StatusIncident::query()->open()->manual()->where('component', $component)->get()
-            ->max(fn (StatusIncident $incident) => $incident->severity->severity());
-        $name = $this->registry->label($component, 'en');
-
-        if ($current === ComponentStatus::Operational) {
-            if ($open) {
-                $open->update(['resolved_at' => $now]);
-                $duration = StatusDuration::format((int) $open->started_at->diffInMinutes($now));
-                $text = "✅ {$name} recovered after {$duration}.";
-
-                // Its outage was reported as part of the dependency's: no separate recovery alert.
-                $open->affected_by ? Log::info('[system-status] '.$text) : $this->alerter->change($component, $text, $name, true);
-            }
-
-            return;
-        }
-
-        // People already know about it: a manual incident at this severity or worse is open.
-        if (! $open && $manual !== null && $current->severity() <= $manual) {
-            return;
-        }
-
-        if ($open) {
-            if ($current->severity() > $open->severity->severity()) {
-                $open->update(['severity' => $current, 'message' => $message]);
-            }
-        } else {
-            StatusIncident::query()->create([
-                'component' => $component,
-                'severity' => $current,
-                'message' => $message,
-                'started_at' => $now,
-                'affected_by' => $this->affectedBy[$component] ?? null,
-            ]);
-        }
-
-        $icon = $current === ComponentStatus::MajorOutage ? '🔴' : '🟠';
-        $label = $this->statusWords($current);
-        $this->alerter->change($component, trim("{$icon} {$name}: {$label}. ".($message ?? '')), $name);
-    }
-
-    private function statusWords(ComponentStatus $status): string
-    {
-        return $status === ComponentStatus::MajorOutage ? 'major outage' : str_replace('_', ' ', $status->value);
-    }
-
-    /**
-     * The scheduler cannot report its own outage, so the first run after a gap records it.
-     */
-    private function recordSchedulerGap(CarbonInterface $now): void
-    {
-        $lastRun = StatusComponent::query()->max('checked_at');
-        if (! $lastRun) {
-            return;
-        }
-
-        $lastRun = Carbon::parse($lastRun);
-        $gapMinutes = (int) $lastRun->diffInMinutes($now);
-
-        if ($gapMinutes <= (int) config('system-status.thresholds.heartbeat_stale_minutes', 3)) {
-            return;
-        }
-
-        StatusIncident::query()->create([
-            'component' => 'scheduler',
-            'severity' => ComponentStatus::MajorOutage,
-            'message' => "No status checks ran for {$gapMinutes} min (scheduler stopped or stuck).",
-            'started_at' => $lastRun,
-            'resolved_at' => $now,
-        ]);
-
-        $this->addDaily([[
-            'component' => 'scheduler',
-            'day' => $now->toDateString(),
-            'runs' => $gapMinutes,
-            'degraded_runs' => 0,
-            'outage_runs' => $gapMinutes,
-            'maintenance_runs' => 0,
-        ]]);
-
-        $this->alert("⚠️ Scheduler: no status checks ran from {$lastRun->format('Y-m-d H:i')} to {$now->format('H:i')} ({$gapMinutes} min). Running again now.");
-    }
-
-    private function dailyRow(string $component, ComponentStatus $status, CarbonInterface $now): array
-    {
-        return [
-            'component' => $component,
-            'day' => $now->toDateString(),
-            'runs' => 1,
-            'degraded_runs' => $status === ComponentStatus::Degraded ? 1 : 0,
-            'outage_runs' => $status === ComponentStatus::MajorOutage ? 1 : 0,
-            'maintenance_runs' => $status === ComponentStatus::Maintenance ? 1 : 0,
-        ];
-    }
-
-    private function addDaily(array $rows): void
-    {
-        if ($rows === []) {
-            return;
-        }
-
-        DB::table('status_daily')->upsert(
-            $rows,
-            ['component', 'day'],
-            StatusSql::incrementOnConflict('status_daily', ['runs', 'degraded_runs', 'outage_runs', 'maintenance_runs']),
-        );
-
-        $monthly = array_map(function (array $row) {
-            $row['month'] = substr($row['day'], 0, 7);
-            unset($row['day']);
-
-            return $row;
-        }, $rows);
-
-        DB::table('status_monthly')->upsert(
-            $monthly,
-            ['component', 'month'],
-            StatusSql::incrementOnConflict('status_monthly', ['runs', 'degraded_runs', 'outage_runs', 'maintenance_runs']),
-        );
-    }
-
-    private function alert(string $text): void
-    {
-        $this->alerter->send($text);
-    }
-
-    /**
-     * Rows of the 90-day history, keyed by component.
-     *
-     * @return Collection<string, Collection<int, object>>
-     */
-    public function dailyHistory(int $days = 90): Collection
-    {
-        return DB::table('status_daily')
-            ->where('day', '>=', now()->subDays($days - 1)->toDateString())
-            ->get()
-            ->groupBy('component');
     }
 }

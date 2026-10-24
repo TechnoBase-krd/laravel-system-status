@@ -16,13 +16,18 @@ namespace `Technobase\SystemStatus`. Public on Packagist (MIT); used by Khatun-E
 | Path | Holds |
 | --- | --- |
 | `src/SystemStatusServiceProvider.php` | config merge, routes, views, translations, migrations, commands, traffic middleware, schedule (incl. the monthly report), publish tags, the optional Pulse card |
-| `src/Services/StatusService.php` | one `status:check` run: probes, traffic, latency, signals, manual incidents, maintenance windows, dependencies, confirmation, incidents, alerts, reminders, events, daily and monthly rollup |
+| `src/Services/StatusService.php` | one `status:check` run: maintenance windows, dependencies, confirmation, events, flap handling; records the outcome in `StatusHeartbeat` |
+| `src/Services/ProbeRunner.php` | runs the due probes (`ConcurrentProbe`s together through `Http::pool`), stores `status_checks`, dispatches queue heartbeats |
+| `src/Services/ComponentEvaluator.php` | what a run observes per component: probes, route traffic and p95, signals, manual incidents |
+| `src/Services/IncidentRecorder.php` | automatic incidents (open, upgrade, resolve), reminders, scheduler gaps |
+| `src/Services/DailyRollup.php` | `status_daily` / `status_monthly` counters and the 90-day history |
 | `src/Services/IncidentService.php` | manual incidents, timeline updates, postmortems, `IncidentUpdated` |
 | `src/Services/MaintenanceService.php` | schedules and ends maintenance windows (page and `status:maintenance`) |
-| `src/Support/` | `StatusRegistry` (config, labels, per-component `threshold()`), `RouteComponentResolver`, `StatusMetrics` (Redis counters), `StatusSignal`, `StatusTimeline` (1h / 24h / 7d), `StatusSql` (driver-specific SQL), `StatusAlerter` (channels, flap protection, folded alerts, webhooks), `LatencyHistogram` (`le_*` buckets, p50 / p95), `StatusDuration` ("1 h 5 min") |
-| `src/Probes/` | `Probe`, `ProbeResult` and the generic probes (Spatie, HTTP, queue heartbeat, CDN, Telegram, TLS certificate, disk space, failed jobs, queue size, queue wait, DNS, TCP port, callback) |
+| `src/Services/DeployService.php` | records deploys (`status:deploy`, `POST {path}/deploys`), reads the version from git, compares errors and p95 before/after a deploy |
+| `src/Support/` | `StatusRegistry` (config, labels, per-component `threshold()`), `RouteComponentResolver`, `StatusMetrics` (Redis counters), `StatusSignal`, `StatusTimeline` (1h / 24h / 7d), `StatusSql` (driver-specific SQL), `StatusAlerter` (channels, flap protection, folded alerts, webhooks), `LatencyHistogram` (`le_*` buckets, p50 / p95), `StatusDuration` ("1 h 5 min"), `StatusHeartbeat` (last run outcome in a cache store) |
+| `src/Probes/` | `Probe`, `ConcurrentProbe` + `SendsHttpRequest` (one HTTP request, sent in a pool), `ProbeResult` and the generic probes (Spatie, HTTP, queue heartbeat, CDN, Telegram, TLS certificate, disk space, failed jobs, queue size, queue wait, DNS, TCP port, callback) |
 | `src/Actions/` | data for the page (`GetStatusSummaryAction`), the detail popup (`GetStatusComponentAction`) and the monthly SLA report (`GetStatusReportAction`: CSV, HTML, PDF) |
-| `src/Console/` | `status:check`, `status:prune`, `status:routes`, `status:maintenance`, `status:test-alert`, `status:report`, `status:doctor` |
+| `src/Console/` | `status:check`, `status:prune`, `status:routes`, `status:maintenance`, `status:test-alert`, `status:report`, `status:doctor`, `status:deploy` |
 | `src/Http/` | controllers (page, management, report), `AuthorizeSystemStatus`, `AuthorizeSystemStatusManagement` (`access.manage_gate`), `RecordRouteHealth`, form requests |
 | `src/Enums/` | `ComponentStatus` (incl. `Maintenance`), `IncidentState` |
 | `src/Events/` | `ComponentStatusChanged` (every confirmed change), `IncidentUpdated`, `MaintenanceStarted`, `MaintenanceEnded` |

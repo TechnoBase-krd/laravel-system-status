@@ -531,9 +531,128 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
 
 /* ---------- 90-day bars ---------- */
 .sst .sst-bars {
+    position: relative;
     display: flex;
     gap: 2px;
     block-size: 30px;
+}
+
+/* ---------- deploy markers: a line on the bars and charts at the deploy time ---------- */
+.sst .sst-deploy-marker {
+    --sst-deploy: var(--sst-accent);
+    position: absolute;
+    inset-block: -5px -3px;
+    z-index: 1;
+    inline-size: 11px;
+    margin-inline-start: -5px;
+    cursor: help;
+}
+
+.sst .sst-deploy-marker::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 4px;
+    inline-size: 2px;
+    border-radius: 2px;
+    background: var(--sst-deploy);
+    box-shadow: 0 0 0 1px var(--sst-surface);
+}
+
+.sst .sst-deploy-marker::after {
+    content: "";
+    position: absolute;
+    inset-block-start: -2px;
+    inset-inline-start: 1px;
+    inline-size: 8px;
+    block-size: 8px;
+    border-radius: 50%;
+    background: var(--sst-deploy);
+    box-shadow: 0 0 0 2px var(--sst-surface);
+}
+
+.sst .sst-deploy-marker[data-worse="1"] {
+    --sst-deploy: var(--sst-major);
+}
+
+.sst .sst-deploy-marker:hover::before {
+    inline-size: 3px;
+}
+
+.sst .sst-chart {
+    position: relative;
+}
+
+.sst .sst-chart .sst-deploy-marker {
+    inset-block: 0 0;
+}
+
+.sst .sst-chart.is-filled .sst-deploy-marker {
+    animation: sst-fade .4s .45s both;
+}
+
+.sst .sst-incident-deploy {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    margin-block-start: .25rem;
+    padding: .1rem .5rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--sst-accent);
+    background: color-mix(in oklab, var(--sst-accent) 10%, var(--sst-surface));
+}
+
+.sst .sst-deploys {
+    display: grid;
+    gap: .15rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.sst .sst-deploy {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: .25rem .75rem;
+    padding-block: .55rem;
+    border-block-end: 1px solid var(--sst-border);
+    font-size: .85rem;
+}
+
+.sst .sst-deploy:last-child {
+    border-block-end: 0;
+}
+
+.sst .sst-deploy-version {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.sst .sst-deploy-version i {
+    margin-inline-end: .35rem;
+    color: var(--sst-accent);
+}
+
+.sst .sst-deploy-meta {
+    color: var(--sst-muted);
+}
+
+.sst .sst-deploy-result {
+    margin-inline-start: auto;
+    padding: .05rem .5rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 600;
+    --sst-tone: var(--sst-ok);
+    color: color-mix(in oklab, var(--sst-tone) 70%, var(--sst-fg));
+    background: color-mix(in oklab, var(--sst-tone) 12%, var(--sst-surface));
+}
+
+.sst .sst-deploy-result[data-worse="1"] {
+    --sst-tone: var(--sst-major);
 }
 
 .sst .sst-bars .sst-bar {

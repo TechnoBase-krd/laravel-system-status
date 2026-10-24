@@ -2,11 +2,15 @@
 
 namespace Technobase\SystemStatus;
 
+use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Pulse\Livewire\Card;
 use Livewire\Livewire;
+use Technobase\SystemStatus\Console\DeployCommand;
 use Technobase\SystemStatus\Console\DoctorCommand;
 use Technobase\SystemStatus\Console\ListStatusRoutesCommand;
 use Technobase\SystemStatus\Console\MaintenanceCommand;
@@ -15,12 +19,18 @@ use Technobase\SystemStatus\Console\ReportCommand;
 use Technobase\SystemStatus\Console\RunStatusChecksCommand;
 use Technobase\SystemStatus\Console\TestAlertCommand;
 use Technobase\SystemStatus\Http\Middleware\RecordRouteHealth;
+use Technobase\SystemStatus\Support\StatusAlerter;
+use Throwable;
 
 class SystemStatusServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/system-status.php', 'system-status');
+
+        // One instance per run or request: a status:check run batches its alerts in it (begin /
+        // flush) while StatusService and IncidentRecorder both send through it.
+        $this->app->scoped(StatusAlerter::class);
     }
 
     public function boot(): void
@@ -44,6 +54,7 @@ class SystemStatusServiceProvider extends ServiceProvider
                 TestAlertCommand::class,
                 ReportCommand::class,
                 DoctorCommand::class,
+                DeployCommand::class,
             ]);
 
             $this->publishes([
@@ -72,13 +83,32 @@ class SystemStatusServiceProvider extends ServiceProvider
         if (config('system-status.schedule', true)) {
             $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
                 // The overlap lock expires after 5 minutes so a killed run cannot stop the checks.
-                $schedule->command('status:check')->everyMinute()->withoutOverlapping(5)->runInBackground();
-                $schedule->command('status:prune')->dailyAt('03:30')->withoutOverlapping();
+                $this->onOneServer($schedule->command('status:check')->everyMinute()->withoutOverlapping(5)->runInBackground());
+                $this->onOneServer($schedule->command('status:prune')->dailyAt('03:30')->withoutOverlapping());
 
                 if (array_filter((array) config('system-status.reports.mail_to', []))) {
-                    $schedule->command('status:report --previous --send')->monthlyOn(1, '08:00');
+                    $this->onOneServer($schedule->command('status:report --previous --send')->monthlyOn(1, '08:00'));
                 }
             });
         }
+    }
+
+    /**
+     * Runs a scheduled command on one server only (schedule_on_one_server) when the scheduler's
+     * cache store can lock; otherwise it keeps running on every server.
+     */
+    private function onOneServer(Event $event): Event
+    {
+        if (! config('system-status.schedule_on_one_server', true)) {
+            return $event;
+        }
+
+        try {
+            $canLock = Cache::store()->getStore() instanceof LockProvider;
+        } catch (Throwable) {
+            $canLock = false;
+        }
+
+        return $canLock ? $event->onOneServer() : $event;
     }
 }

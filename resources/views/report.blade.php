@@ -147,7 +147,13 @@
             <div class="sst-kpi" data-tone="{{ $incidentTone }}">
                 <span class="sst-kpi-label">@lang('system-status::status.status_incidents')</span>
                 <strong class="sst-kpi-value tone-{{ $incidentTone }}">{{ number_format($report['incident_count']) }}</strong>
-                <span class="sst-kpi-sub">@lang('system-status::status.status_report_in_month')</span>
+                <span class="sst-kpi-sub">
+                    @if(($report['deploy_count'] ?? 0) > 0)
+                        @lang('system-status::status.status_report_deploys', ['count' => $report['deploy_count'], 'after' => $report['incidents_after_deploy']])
+                    @else
+                        @lang('system-status::status.status_report_in_month')
+                    @endif
+                </span>
             </div>
             @php($downTone = $report['outage_minutes'] ? 'bad' : 'ok')
             <div class="sst-kpi" data-tone="{{ $downTone }}">
@@ -241,6 +247,9 @@
                             @endif
                             <small class="sst-incident-time">
                                 {{ $incident['started_at'] }} → {{ $incident['resolved_at'] ?? '…' }} · {{ StatusDuration::format($incident['duration_minutes']) }}
+                                @if(! empty($incident['after_deploy']))
+                                    · @lang('system-status::status.status_report_after_deploy', ['version' => $incident['after_deploy']])
+                                @endif
                                 @if($incident['affected_by'])
                                     · @lang('system-status::status.status_report_affected_by', ['component' => $incident['affected_by']])
                                 @endif

@@ -6,6 +6,7 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Enums\IncidentState;
+use Technobase\SystemStatus\Models\StatusDeploy;
 use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Support\LatencyHistogram;
@@ -121,6 +122,22 @@ class DatabaseSeeder extends Seeder
         StatusMaintenance::query()->create([
             'title' => 'Database version upgrade', 'components' => ['database', 'api_orders', 'api_cart_checkout'],
             'starts_at' => $now->copy()->addDay()->setTime(2, 0), 'ends_at' => $now->copy()->addDay()->setTime(3, 0), 'created_by' => 'Demo Admin',
+        ]);
+
+        // Deploys: one three days ago (before the database incident), one this morning, one just now.
+        StatusDeploy::query()->create([
+            'version' => 'v1.8.0', 'commit' => '4f2a9c1', 'deployed_by' => 'ci', 'note' => 'Order export',
+            'deployed_at' => $now->copy()->subDays(3)->setTime(13, 58), 'compared_at' => $now->copy()->subDays(3)->setTime(14, 13), 'comparison' => [],
+        ]);
+        StatusDeploy::query()->create([
+            'version' => 'v1.8.1', 'commit' => '9b7e3d2', 'deployed_by' => 'ci',
+            'deployed_at' => $now->copy()->subHours(6), 'compared_at' => $now->copy()->subHours(6)->addMinutes(15), 'comparison' => [],
+        ]);
+        StatusDeploy::query()->create([
+            'version' => 'v1.8.2', 'commit' => 'a1b2c3d', 'deployed_by' => 'Demo Admin', 'note' => 'New checkout',
+            'deployed_at' => $now->copy()->subMinutes(20), 'compared_at' => $now->copy()->subMinutes(5),
+            'comparison' => [['component' => 'api_cart_checkout', 'error_rate_before' => 0.4, 'error_rate_after' => 3.1,
+                'p95_before' => 410, 'p95_after' => 1240, 'errors_worse' => true, 'slower' => true]],
         ]);
 
         // Incidents.

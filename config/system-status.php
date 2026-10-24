@@ -89,6 +89,18 @@ return [
     'record_traffic' => true,
     'schedule' => true,
 
+    // With several servers running the scheduler, run the scheduled commands on one of them only
+    // (onOneServer), so probes, incidents and alerts are not doubled. Needs a cache store that
+    // supports locks (redis, memcached, database, dynamodb); skipped for one that does not. The
+    // scheduler's locks use the default cache store: Schedule::useCache('database') in the
+    // application keeps them working while Redis is down.
+    'schedule_on_one_server' => true,
+
+    // Cache store that keeps the outcome of the last status:check runs (null = the default
+    // store), so the page can say "checks failing since 12:04" when a run fails. Shared between
+    // servers, it should not be 'file' or 'array' on a multi-server setup.
+    'heartbeat_store' => null,
+
     // Redis connection for the per-minute traffic counters (null = the default connection).
     'redis_connection' => null,
 
@@ -124,6 +136,11 @@ return [
 
     // User-Agent of the HTTP probes; allow it in a firewall (e.g. Cloudflare) in front of the app.
     'probe_user_agent' => 'SystemStatusProbe/1.0',
+
+    // Send the requests of the HTTP probes due in a run together (HttpEndpointProbe,
+    // CdnStorageProbe, TelegramProbe and any ConcurrentProbe), so a run takes as long as the
+    // slowest of them instead of their sum. false = one after another.
+    'concurrent_probes' => true,
 
     // Status changes, incident updates and reminders are sent to the channels below. Nothing is
     // sent in `local` (the alert is logged). Every confirmed change also fires
@@ -167,6 +184,27 @@ return [
         'format' => 'csv',
         // Brand colour of the PDF header (the web report follows the page's --sst-accent).
         'accent' => '#6F2E8F',
+    ],
+
+    // Deploy markers: `php artisan status:deploy 1.8.2` (or POST {path}/deploys from CI) records
+    // a deploy. It shows as a line on the charts, and incidents that start soon after it say so.
+    'deploys' => [
+        // Bearer token for POST {path}/deploys. null = the endpoint is off (404).
+        'token' => env('SYSTEM_STATUS_DEPLOY_TOKEN'),
+        // An incident that starts within this many minutes after a deploy names it.
+        'incident_window_minutes' => 30,
+        // Also send "🚀 Deployed 1.8.2" to the alert channels.
+        'announce' => false,
+        // After `after_minutes`, compare each component's error rate and p95 with the same time
+        // before the deploy, and send one alert when they got clearly worse. Off by default.
+        'compare' => [
+            'enabled' => false,
+            'after_minutes' => 15,
+            // Error rate rise in percentage points (0.3 % → 2.5 % is 2.2).
+            'error_rate_increase' => 2,
+            // p95 rise in percent (and at least 100 ms).
+            'p95_increase_percent' => 50,
+        ],
     ],
 
     'retention_days' => [

@@ -125,6 +125,16 @@
             <div class="sst-panel-body" id="sstMaintenances"></div>
         </section>
 
+        {{-- Recent deploys (status:deploy) --}}
+        <section class="sst-panel tw:mb-6" id="sstDeploysPanel" hidden>
+            <header class="sst-panel-head">
+                <h3 class="sst-panel-title"><i class="fas fa-rocket" aria-hidden="true"></i> @lang('system-status::status.status_recent_deploys')</h3>
+            </header>
+            <div class="sst-panel-body tw:py-1">
+                <ul class="sst-deploys" id="sstDeploys"></ul>
+            </div>
+        </section>
+
         <div id="sstGroups" class="sst-groups">
             @for ($i = 0; $i < 3; $i++)
                 <div class="sst-skeleton" aria-hidden="true"></div>
@@ -217,6 +227,7 @@
                     <p class="sst-incident-title"></p>
                     <p class="sst-incident-message"></p>
                     <small class="sst-incident-time"></small>
+                    <span class="sst-incident-deploy" hidden><i class="fas fa-rocket" aria-hidden="true"></i><span></span></span>
                     <ol class="sst-timeline"></ol>
                     <div class="sst-postmortem">
                         <strong>@lang('system-status::status.status_postmortem')</strong>

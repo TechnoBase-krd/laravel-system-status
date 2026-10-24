@@ -27,6 +27,25 @@ class StatusTimeline
     ];
 
     /**
+     * Start and end (Unix seconds) of the bars of a range: 1h, 24h, 7d or 90d.
+     *
+     * @return array{0: int, 1: int}
+     */
+    public static function bounds(string $range): array
+    {
+        if (! isset(self::RANGES[$range])) {
+            $end = now()->startOfDay()->addDay()->timestamp;
+
+            return [now()->startOfDay()->subDays(89)->timestamp, $end];
+        }
+
+        $size = self::RANGES[$range]['slot_seconds'];
+        $end = (intdiv(now()->timestamp, $size) + 1) * $size;
+
+        return [$end - self::RANGES[$range]['slots'] * $size, $end];
+    }
+
+    /**
      * @param  array<int, string>  $components
      * @return array<string, array{slots: array<int, array>, uptime: ?float}>
      */
@@ -34,8 +53,7 @@ class StatusTimeline
     {
         $config = self::RANGES[$range];
         $size = $config['slot_seconds'];
-        $end = (intdiv(now()->timestamp, $size) + 1) * $size;
-        $start = $end - $config['slots'] * $size;
+        [$start, $end] = self::bounds($range);
 
         $runSlots = $this->runSlots($start, $size);
         $incidents = $this->incidents($start, $end);

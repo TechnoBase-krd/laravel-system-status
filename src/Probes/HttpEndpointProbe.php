@@ -3,15 +3,18 @@
 namespace Technobase\SystemStatus\Probes;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
+use Throwable;
 
 /**
  * GETs one of the app's own public, read-only URLs through APP_URL, so the whole chain
  * (DNS, proxy, web server, PHP, database, cache) is exercised the way a customer reaches it.
  */
-class HttpEndpointProbe implements Probe
+class HttpEndpointProbe implements ConcurrentProbe
 {
+    use SendsHttpRequest;
+
     public const HEADER = 'X-Status-Probe';
 
     public function __construct(private readonly string $path, private readonly bool $json = true) {}
@@ -21,10 +24,14 @@ class HttpEndpointProbe implements Probe
         return 'GET '.$this->path;
     }
 
-    public function run(): ProbeResult
+    public function precheck(): ?ProbeResult
+    {
+        return null;
+    }
+
+    public function send(PendingRequest $request): mixed
     {
         $baseUrl = config('system-status.probe_base_url');
-        $url = rtrim((string) ($baseUrl ?: config('app.url')), '/').$this->path;
 
         $headers = [
             self::HEADER => '1',
@@ -37,7 +44,7 @@ class HttpEndpointProbe implements Probe
             $headers['Host'] = $host;
         }
 
-        $request = Http::timeout((int) config('system-status.thresholds.probe_timeout_seconds', 10))
+        $request = $request->timeout((int) config('system-status.thresholds.probe_timeout_seconds', 10))
             ->withUserAgent((string) config('system-status.probe_user_agent', 'SystemStatusProbe/1.0'))
             ->withHeaders($headers);
 
@@ -45,10 +52,17 @@ class HttpEndpointProbe implements Probe
             $request = $request->withoutVerifying();
         }
 
-        try {
-            $response = $request->get($url);
-        } catch (ConnectionException $e) {
-            return ProbeResult::outage('Could not connect to '.$this->target($url).$this->reason($e));
+        return $request->get($this->url());
+    }
+
+    public function result(Response|Throwable $response): ProbeResult
+    {
+        if ($response instanceof ConnectionException) {
+            return ProbeResult::outage('Could not connect to '.$this->target($this->url()).$this->reason($response));
+        }
+
+        if ($response instanceof Throwable) {
+            return ProbeResult::outage('Check failed ('.class_basename($response).')');
         }
 
         if (! $response->successful()) {
@@ -61,6 +75,13 @@ class HttpEndpointProbe implements Probe
         }
 
         return ProbeResult::ok();
+    }
+
+    private function url(): string
+    {
+        $baseUrl = config('system-status.probe_base_url');
+
+        return rtrim((string) ($baseUrl ?: config('app.url')), '/').$this->path;
     }
 
     /**

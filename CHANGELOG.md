@@ -2,8 +2,40 @@
 
 ## Unreleased
 
+- Deploy markers: `php artisan status:deploy 1.8.2` (or `POST {path}/deploys` from CI with
+  `deploys.token`) records a deploy. It shows as a line on the bars and the detail charts, as
+  "Last deploy" and in a *Recent deploys* list; incidents that start within
+  `deploys.incident_window_minutes` after it name it on the page, in the alert and in the
+  monthly report. Optional before/after comparison (`deploys.compare`, off by default) sends one
+  alert when errors or p95 got clearly worse. New `status_deploys` table, `DeployRecorded`
+  event, `deploy.recorded` / `deploy.regression` webhook events and the
+  `system_status.deploys.store` route.
+- Fix: the standalone layout's top bar styles (`.sst-bar`) also applied to every history bar,
+  making each one sticky; they now apply to the header only.
+- Fix: with several servers running the scheduler, `status:check`, `status:prune` and the monthly
+  report ran on each of them, doubling probes, incidents and alerts. They now run on one server
+  (`onOneServer()`) when the cache store can lock; `schedule_on_one_server` (default `true`)
+  turns it off.
+- Fix: HTTP probes due in the same run are sent together (`Http::pool`), so a run takes about as
+  long as the slowest of them instead of their sum. New `ConcurrentProbe` interface and
+  `SendsHttpRequest` trait for an application's own HTTP probes; `HttpEndpointProbe`,
+  `CdnStorageProbe` and `TelegramProbe` use them. `concurrent_probes` (default `true`) turns it
+  off.
+- Fix: a `status:check` run that throws (database down, missing migration, a bug) is kept in a
+  cache store (`heartbeat_store`) instead of being lost: the page and `status:doctor` say
+  "Status checks have been failing since 12:04 (QueryException)" instead of showing old data.
+  The summary has a new `checks_failing` field.
+- `StatusService` is split into `ProbeRunner`, `ComponentEvaluator`, `IncidentRecorder` and
+  `DailyRollup`; `StatusService::run()` and `dailyHistory()` are unchanged. `StatusAlerter` is
+  bound as a scoped instance, so every part of one run shares it.
+
+## v1.5.1 - 2026-10-24
+
 - Fixed a crash (`end(): Argument #1 ($array) could not be passed by reference`) in the detail
   popup and latency figures when a percentile fell in the slowest bucket (over 5 s).
+
+## v1.5.0 - 2026-10-23
+
 - Faster status page with many components or a lot of history: a refresh only updates what
   changed instead of redrawing every bar, groups off screen are not drawn, and the summary is
   built about 4–8 times faster with a response about half the size (zero and empty values are
