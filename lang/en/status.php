@@ -13,6 +13,7 @@ return [
     'status_by' => 'by :name',
     'status_cancel' => 'Cancel',
     'status_checked_at' => 'Checked at',
+    'status_checks_failing_since' => 'Status checks have been failing since :time (:error). See the application log.',
     'status_checks_never_ran' => 'Status checks have not run yet. Run php artisan status:check or start the scheduler.',
     'status_checks_not_running_since' => 'No status checks have run since :time. The scheduler may be stopped.',
     'status_choose_components' => 'Choose at least one component.',

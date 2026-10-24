@@ -19,6 +19,7 @@
         };
         const i18n = {
             lastChecked: @json(__('system-status::status.status_last_checked', ['time' => ':time'])),
+            checksFailing: @json(__('system-status::status.status_checks_failing_since', ['time' => ':time', 'error' => ':error'])),
             uptime: @json(__('system-status::status.status_uptime', ['value' => ':value'])),
             noData: @json(__('system-status::status.status_no_data')),
             noIncidents: @json(__('system-status::status.status_no_incidents')),
@@ -438,7 +439,8 @@
             const lastDeploy = (data.recent_deploys || [])[0];
             $('sstHeroMeta').textContent = (data.last_run_ago
                 ? fill(i18n.lastChecked, {time: data.last_run_ago}) + (data.last_run_at ? ' · ' + data.last_run_at : '')
-                : '') + (lastDeploy ? ' · ' + fill(i18n.lastDeploy, {version: lastDeploy.label, ago: lastDeploy.ago}) : '');
+                : '') + (lastDeploy ? ' · ' + fill(i18n.lastDeploy, {version: lastDeploy.label, ago: lastDeploy.ago}) : '')
+                + (data.checks_failing ? ' · ' + fill(i18n.checksFailing, {time: data.checks_failing.since, error: data.checks_failing.error || '?'}) : '');
         }
 
         function allComponents(data) {

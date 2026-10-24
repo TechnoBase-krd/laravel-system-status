@@ -14,6 +14,7 @@ use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Probes\Probe;
 use Technobase\SystemStatus\Support\RouteComponentResolver;
 use Technobase\SystemStatus\Support\StatusAlerter;
+use Technobase\SystemStatus\Support\StatusHeartbeat;
 use Technobase\SystemStatus\Support\StatusRegistry;
 use Throwable;
 
@@ -129,6 +130,12 @@ class DoctorCommand extends Command
         $minutes > (int) config('system-status.thresholds.heartbeat_stale_minutes', 3)
             ? $this->reportFail('Scheduler', "status:check last ran {$minutes} min ago. Is the scheduler running?")
             : $this->reportOk('Scheduler', 'status:check ran '.($minutes ? "{$minutes} min ago" : 'within the last minute').'.');
+
+        $heartbeat = StatusHeartbeat::get();
+        if ($heartbeat['failing_since']) {
+            $since = Carbon::createFromTimestamp($heartbeat['failing_since'], config('app.timezone'))->format('Y-m-d H:i');
+            $this->reportFail('Last run', "status:check has been failing since {$since} ({$heartbeat['error']}). Run php artisan status:check to see the error.");
+        }
 
         if (! config('system-status.schedule', true)) {
             $this->reportWarn('Schedule', 'system-status.schedule is off: register status:check (every minute) and status:prune yourself.');

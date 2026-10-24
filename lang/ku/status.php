@@ -13,6 +13,7 @@ return [
     'status_by' => 'لەلایەن :name',
     'status_cancel' => 'هەڵوەشاندنەوە',
     'status_checked_at' => 'کاتی پشکنین',
+    'status_checks_failing_since' => 'پشکنینەکانی دۆخ لە :time ەوە سەرناکەون (:error). سەیری لۆگی بەرنامەکە بکە.',
     'status_checks_never_ran' => 'هێشتا پشکنین نەکراوە. php artisan status:check جێبەجێ بکە یان خشتەکار دەست پێ بکە.',
     'status_checks_not_running_since' => 'لە :time ەوە هیچ پشکنینێک نەکراوە. لەوانەیە خشتەکار وەستابێت.',
     'status_choose_components' => 'لانیکەم یەک بەش هەڵبژێرە.',

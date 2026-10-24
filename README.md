@@ -332,6 +332,8 @@ All options live in `config/system-status.php`.
 | `refresh_seconds` | `['1h' => 20, 'default' => 60]` | seconds between automatic refreshes, per range |
 | `record_traffic` | `true` | count every request (global middleware) |
 | `schedule` | `true` | schedule `status:check`, `status:prune` and (with `reports.mail_to`) the monthly `status:report` |
+| `schedule_on_one_server` | `true` | run those scheduled commands on one server only (`onOneServer()`), so several servers do not double probes, incidents and alerts; skipped when the cache store cannot lock |
+| `heartbeat_store` | `null` | cache store that keeps the outcome of the last runs (`null` = default store), so a failing `status:check` shows on the page; use a shared store on several servers |
 | `redis_connection` | `null` | Redis connection of the traffic counters (`null` = default) |
 | `thresholds.window_minutes` | `15` | window for traffic and signal error rates and the p95 |
 | `thresholds.min_requests` | `20` | fewer requests in the window = operational |
@@ -348,6 +350,7 @@ All options live in `config/system-status.php`.
 | `probe_base_url` | `env('STATUS_PROBE_BASE_URL')` | send HTTP probes straight to the app (e.g. `http://nginx`); `APP_URL`'s host is kept in `Host` |
 | `probe_verify_ssl` | `env('STATUS_PROBE_VERIFY_SSL', true)` | `false` skips TLS checks, only for an internal probe base URL |
 | `probe_user_agent` | `SystemStatusProbe/1.0` | User-Agent of the HTTP probes and outgoing webhooks (allow it in your firewall) |
+| `concurrent_probes` | `true` | send the requests of the HTTP probes due in a run together, so a run takes as long as the slowest one; `false` = one after another |
 | `alerts.enabled` | `env('SYSTEM_STATUS_ALERTS_ENABLED', true)` | send alerts and webhooks; `SYSTEM_STATUS_ALERTS_ENABLED=false` turns them off (the events still fire) |
 | `alerts.channels` | `['telegram']` | any of `telegram`, `mail`, `slack`, `discord` |
 | `alerts.telegram_chat_id` | `env('SYSTEM_STATUS_TELEGRAM_CHAT_ID')` | chat that receives Telegram alerts |
@@ -471,6 +474,49 @@ class PaymentGatewayProbe implements Probe
 
 Results: `ProbeResult::ok()`, `degraded($message)`, `outage($message)`, `skipped($message)`.
 A probe decides its own status; return `degraded()` yourself when the service is slow.
+
+#### A probe that makes one HTTP request
+
+Implement `ConcurrentProbe` instead (and use the `SendsHttpRequest` trait for `run()`).
+`status:check` then sends its request together with those of the other HTTP probes that are due
+(`Http::pool`), so ten slow endpoints take as long as the slowest one, not their sum. The
+built-in `HttpEndpointProbe`, `CdnStorageProbe` and `TelegramProbe` work this way.
+
+```php
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
+use Technobase\SystemStatus\Probes\{ConcurrentProbe, ProbeResult, SendsHttpRequest};
+use Throwable;
+
+class SearchApiProbe implements ConcurrentProbe
+{
+    use SendsHttpRequest;
+
+    public function name(): string
+    {
+        return 'Search API health';
+    }
+
+    public function precheck(): ?ProbeResult       // a result without a request, or null
+    {
+        return blank(config('services.search.url')) ? ProbeResult::skipped('Search is not configured') : null;
+    }
+
+    public function send(PendingRequest $request): mixed
+    {
+        return $request->timeout(5)->get(config('services.search.url').'/health');
+    }
+
+    public function result(Response|Throwable $response): ProbeResult
+    {
+        return match (true) {
+            $response instanceof Throwable => ProbeResult::outage('Could not connect to search'),
+            $response->failed() => ProbeResult::outage('Search returned HTTP '.$response->status()),
+            default => ProbeResult::ok(),
+        };
+    }
+}
+```
 
 Rules for probes:
 
@@ -1034,6 +1080,11 @@ Publish it again with `--force` after an upgrade to get the new guidance.
   package, and run `composer update technobase/laravel-system-status`.
 - **Scheduler.** `schedule:run` must run every minute (cron or a scheduler container), otherwise
   the page shows the scheduler red and nothing updates.
+- **Several servers.** The scheduled commands run on one server only (`schedule_on_one_server`)
+  through the cache's locks, so the cache must be shared (Redis, Memcached, database). If the
+  cache is the Redis you are monitoring, `Schedule::useCache('database')` in the application keeps
+  the scheduler's locks, and so the checks, working while Redis is down. Point `heartbeat_store`
+  at a shared store too.
 - **Queues.** List in `queues` only queues that always have a worker.
 - **Firewall.** HTTP probes go through `APP_URL`. If Cloudflare or a WAF answers them with 403,
   allow your `probe_user_agent`, or set `STATUS_PROBE_BASE_URL` to reach the app directly.
@@ -1058,6 +1109,8 @@ that break `config:cache`. It exits with an error when something is broken.
 | --- | --- | --- |
 | "Waiting for the first status check" | `status:check` never ran | run it once; start the scheduler |
 | Scheduler red | no run for more than `heartbeat_stale_minutes` | check the scheduler container / cron |
+| "Status checks have been failing since …" | `status:check` runs but throws (shown with the exception class) | run `php artisan status:check` to see the error; often a missing migration |
+| Probes, incidents or alerts doubled | several servers run the scheduler without a shared cache | use a shared cache store (see [Deployment](#deployment)) |
 | Queue red, "heartbeat not processed" | no worker on a queue in `queues` | start the worker or remove the queue |
 | An HTTP probe fails with "Cloudflare, not the app" | the firewall blocks the probe | allow the user agent or set `STATUS_PROBE_BASE_URL` |
 | A component shows "No data" | no probe ran and no traffic yet | wait a run, or add a source to the component |

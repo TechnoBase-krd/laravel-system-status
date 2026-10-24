@@ -80,6 +80,9 @@ Then a label in every locale in `lang/vendor/system-status/<locale>/status.php`
 
 **New probe**: implement `Probe` (`name()`, `run()`); return `skipped()` while the service is
 not configured; catch exceptions and return `outage('… ('.class_basename($e).')')`.
+A probe that makes one HTTP request should implement `ConcurrentProbe` (`precheck()`,
+`send(PendingRequest)`, `result(Response|Throwable)`) with the `SendsHttpRequest` trait, so
+`status:check` sends it together with the other HTTP probes.
 
 **New signal**: wrap the existing call; report success after it, failure in the catch, and
 rethrow so behaviour does not change.

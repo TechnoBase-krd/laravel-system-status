@@ -13,6 +13,7 @@ return [
     'status_by' => 'بواسطة :name',
     'status_cancel' => 'إلغاء',
     'status_checked_at' => 'وقت الفحص',
+    'status_checks_failing_since' => 'فحوصات الحالة تفشل منذ :time (:error). راجع سجل التطبيق.',
     'status_checks_never_ran' => 'لم يتم تشغيل الفحوصات بعد. شغّل php artisan status:check أو ابدأ المجدول.',
     'status_checks_not_running_since' => 'لم يتم تشغيل أي فحص منذ :time. قد يكون المجدول متوقفاً.',
     'status_choose_components' => 'اختر مكوّناً واحداً على الأقل.',

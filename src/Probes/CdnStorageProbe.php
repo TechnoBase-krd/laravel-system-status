@@ -2,15 +2,18 @@
 
 namespace Technobase\SystemStatus\Probes;
 
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
+use Throwable;
 
 /**
  * A HEAD request to the public URL of a filesystem disk (a CDN such as Bunny). Any answer below
  * 500 means the CDN is reachable. Config: ['with' => ['disk' => 's3']].
  */
-class CdnStorageProbe implements Probe
+class CdnStorageProbe implements ConcurrentProbe
 {
+    use SendsHttpRequest;
+
     public function __construct(private readonly string $disk = 's3') {}
 
     public function name(): string
@@ -18,17 +21,19 @@ class CdnStorageProbe implements Probe
         return 'CDN ('.$this->disk.' disk)';
     }
 
-    public function run(): ProbeResult
+    public function precheck(): ?ProbeResult
     {
-        $url = config('filesystems.disks.'.$this->disk.'.url');
+        return blank($this->url()) ? ProbeResult::skipped('CDN URL is not configured') : null;
+    }
 
-        if (blank($url)) {
-            return ProbeResult::skipped('CDN URL is not configured');
-        }
+    public function send(PendingRequest $request): mixed
+    {
+        return $request->timeout((int) config('system-status.thresholds.probe_timeout_seconds', 10))->head($this->url());
+    }
 
-        try {
-            $response = Http::timeout((int) config('system-status.thresholds.probe_timeout_seconds', 10))->head($url);
-        } catch (ConnectionException) {
+    public function result(Response|Throwable $response): ProbeResult
+    {
+        if ($response instanceof Throwable) {
             return ProbeResult::outage('Could not connect to the CDN');
         }
 
@@ -37,5 +42,10 @@ class CdnStorageProbe implements Probe
         }
 
         return ProbeResult::ok();
+    }
+
+    private function url(): ?string
+    {
+        return config('filesystems.disks.'.$this->disk.'.url');
     }
 }
