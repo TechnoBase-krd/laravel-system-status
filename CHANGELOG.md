@@ -29,6 +29,11 @@
   `DailyRollup`; `StatusService::run()` and `dailyHistory()` are unchanged. `StatusAlerter` is
   bound as a scoped instance, so every part of one run shares it.
 
+## v1.5.1 - 2026-10-24
+
+- Fixed a crash (`end(): Argument #1 ($array) could not be passed by reference`) in the detail
+  popup and latency figures when a percentile fell in the slowest bucket (over 5 s).
+
 ## v1.5.0 - 2026-10-23
 
 - Faster status page with many components or a lot of history: a refresh only updates what
