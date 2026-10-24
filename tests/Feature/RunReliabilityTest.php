@@ -6,10 +6,10 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Schema;
 use Technobase\SystemStatus\Actions\GetStatusSummaryAction;
 use Technobase\SystemStatus\Probes\CdnStorageProbe;
 use Technobase\SystemStatus\Probes\HttpEndpointProbe;
+use Technobase\SystemStatus\Services\ProbeRunner;
 use Technobase\SystemStatus\Support\StatusHeartbeat;
 use Technobase\SystemStatus\SystemStatusServiceProvider;
 use Technobase\SystemStatus\Tests\Fixtures\BrokenSendProbe;
@@ -24,6 +24,15 @@ function httpProbe(string $component, string $path): void
     config()->set("system-status.groups.web.{$component}", [
         'probes' => [['class' => HttpEndpointProbe::class, 'with' => ['path' => $path]]],
     ]);
+}
+
+/**
+ * Makes the following runs throw. Not through a database error: on PostgreSQL that would abort
+ * the test's transaction and every later query with it.
+ */
+function breakRuns(): void
+{
+    test()->mock(ProbeRunner::class)->shouldReceive('run')->andThrow(new RuntimeException('probe runner broke'));
 }
 
 function checkStatus(string $component): ?string
@@ -119,7 +128,7 @@ it('keeps the heartbeat of successful and failed runs', function () {
         'failing_since' => null,
     ]);
 
-    Schema::drop('status_monthly');
+    breakRuns();
 
     expect(fn () => runChecks())->toThrow(Exception::class);
     expect(fn () => runChecks())->toThrow(Exception::class);
@@ -127,12 +136,12 @@ it('keeps the heartbeat of successful and failed runs', function () {
     $state = StatusHeartbeat::get();
     expect($state['last_success_at'])->toBe(Carbon::parse('2026-10-20 12:00:00')->getTimestamp())
         ->and($state['failing_since'])->toBe(Carbon::parse('2026-10-20 12:01:00')->getTimestamp())
-        ->and($state['error'])->toBe('QueryException');
+        ->and($state['error'])->toBe('RuntimeException');
 });
 
 it('shows failing checks on the page instead of old data', function () {
     runChecks();
-    Schema::drop('status_monthly');
+    breakRuns();
 
     for ($i = 0; $i < 5; $i++) {
         try {
@@ -146,14 +155,14 @@ it('shows failing checks on the page instead of old data', function () {
     $scheduler = collect($summary['groups'])->flatMap(fn ($group) => $group['components'])->firstWhere('key', 'scheduler');
 
     expect($summary['stale'])->toBeTrue()
-        ->and($summary['checks_failing'])->toBe(['since' => '2026-10-20 12:01', 'error' => 'QueryException'])
+        ->and($summary['checks_failing'])->toBe(['since' => '2026-10-20 12:01', 'error' => 'RuntimeException'])
         ->and($scheduler['status'])->toBe('major_outage')
-        ->and($scheduler['message'])->toContain('2026-10-20 12:01')->toContain('QueryException');
+        ->and($scheduler['message'])->toContain('2026-10-20 12:01')->toContain('RuntimeException');
 });
 
 it('does not call one failed run a stall', function () {
     runChecks();
-    Schema::drop('status_monthly');
+    breakRuns();
 
     try {
         runChecks();
