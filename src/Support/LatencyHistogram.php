@@ -11,6 +11,9 @@ class LatencyHistogram
     /** Upper bounds in ms; a last, open bucket holds everything slower. */
     public const BOUNDS = [50, 100, 250, 500, 1000, 2500, 5000];
 
+    /** Upper end assumed for the open bucket: twice the last bound. */
+    public const OPEN_BUCKET_MS = 10000;
+
     public const COLUMNS = ['le_50', 'le_100', 'le_250', 'le_500', 'le_1000', 'le_2500', 'le_5000', 'le_inf'];
 
     public static function index(int $ms): int
@@ -48,8 +51,7 @@ class LatencyHistogram
 
             if ($cumulative + $count >= $target) {
                 $lower = $index === 0 ? 0 : self::BOUNDS[$index - 1];
-                // The open bucket is treated as ending at twice the last bound.
-                $upper = self::BOUNDS[$index] ?? end(self::BOUNDS) * 2;
+                $upper = self::BOUNDS[$index] ?? self::OPEN_BUCKET_MS;
 
                 return (int) round($lower + ($upper - $lower) * (($target - $cumulative) / $count));
             }
@@ -57,7 +59,7 @@ class LatencyHistogram
             $cumulative += $count;
         }
 
-        return end(self::BOUNDS) * 2;
+        return self::OPEN_BUCKET_MS;
     }
 
     /**

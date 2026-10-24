@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed a crash (`end(): Argument #1 ($array) could not be passed by reference`) in the detail
+  popup and latency figures when a percentile fell in the slowest bucket (over 5 s).
 - Faster status page with many components or a lot of history: a refresh only updates what
   changed instead of redrawing every bar, groups off screen are not drawn, and the summary is
   built about 4–8 times faster with a response about half the size (zero and empty values are
