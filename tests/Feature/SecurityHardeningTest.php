@@ -358,7 +358,18 @@ it('reports impossible travel between two logins', function () {
 
 /* ---------- 9. new API tokens, role changes and doctor checks ---------- */
 
+it('does not report new API tokens by default', function () {
+    $token = new class extends Model
+    {
+        protected $guarded = [];
+    };
+    app(RecordSecurityChanges::class)->tokenCreated($token->forceFill(['name' => 'auth_token']));
+
+    expect(StatusSecurityEvent::query()->count())->toBe(0);
+});
+
 it('reports new API tokens and role changes', function () {
+    config()->set('system-status.security.watch_changes.tokens', true);
     $admin = User::query()->create(['name' => 'Rawa']);
     $this->actingAs($admin);
     $listener = app(RecordSecurityChanges::class);
@@ -392,6 +403,7 @@ it('reports new tokens only for the owners it watches', function () {
     };
 
     // true: the login watch rules decide.
+    config()->set('system-status.security.watch_changes.tokens', true);
     config()->set('system-status.security.logins.watch_roles', ['Super Admin']);
     $listener->tokenCreated($tokenFor($customer));
     $listener->tokenCreated($tokenFor($admin));

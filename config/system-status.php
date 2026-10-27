@@ -400,13 +400,13 @@ return [
             'export' => ['max' => 10, 'minutes' => 60],
             'bulk_delete' => ['max' => 3, 'minutes' => 60],
         ],
-        // Report these changes as risky actions by themselves: new API tokens (Laravel Sanctum)
-        // and roles or permissions given or taken (spatie/laravel-permission with
-        // permission.events_enabled). tokens: true = tokens of the users logins.watch_gate /
-        // watch_roles watch (everybody when neither is set), a list of owner model classes (e.g.
-        // [App\Models\Admin::class] when customers get a token at every login), or false.
+        // Report these changes as risky actions by themselves: roles or permissions given or taken
+        // (spatie/laravel-permission with permission.events_enabled) and new API tokens (Laravel
+        // Sanctum). tokens is off by default because many apps give customers a token at every
+        // login: list the staff models whose new tokens matter (e.g. [App\Models\Admin::class]),
+        // or true for the users logins.watch_gate / watch_roles watch (everybody when neither is set).
         'watch_changes' => [
-            'tokens' => true,
+            'tokens' => false,
             'roles' => true,
         ],
 

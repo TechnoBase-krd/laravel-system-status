@@ -65,16 +65,12 @@ class SystemStatusServiceProvider extends ServiceProvider
         }
 
         if ($security) {
-            $watch = (array) config('system-status.security.watch_changes', []);
+            // The listeners read security.watch_changes when they run, so an application can set
+            // it in its own service provider.
+            Events::listen('eloquent.created: Laravel\\Sanctum\\PersonalAccessToken', [RecordSecurityChanges::class, 'tokenCreated']);
 
-            if ($watch['tokens'] ?? true) {
-                Events::listen('eloquent.created: Laravel\\Sanctum\\PersonalAccessToken', [RecordSecurityChanges::class, 'tokenCreated']);
-            }
-
-            if ($watch['roles'] ?? true) {
-                foreach (['RoleAttached', 'RoleDetached', 'PermissionAttached', 'PermissionDetached'] as $name) {
-                    Events::listen('Spatie\\Permission\\Events\\'.$name, [RecordSecurityChanges::class, 'roleChanged']);
-                }
+            foreach (['RoleAttached', 'RoleDetached', 'PermissionAttached', 'PermissionDetached'] as $name) {
+                Events::listen('Spatie\\Permission\\Events\\'.$name, [RecordSecurityChanges::class, 'roleChanged']);
             }
         }
 

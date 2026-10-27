@@ -187,8 +187,8 @@ pending migrations. Auto-block (`security.block`, also Cloudflare) answers 403 t
 serious or critical finding; critical = a scanned file served, a payload causing a 500,
 honeypots (`honeypot.paths`, `<x-system-status::honeypot />`, `honeypot.canaries`), impossible
 travel, a session used from another country. `ExposedFilesProbe`, `WebShellProbe`, `SecurityFilesProbe` (baseline
-at every `status:deploy`) and `ComposerAuditProbe` go in a `security` group. When customers get a
-Sanctum token at every login, set `watch_changes.tokens` to the staff model classes. Unblock:
+at every `status:deploy`) and `ComposerAuditProbe` go in a `security` group. Alerts for new Sanctum
+tokens are off by default; set `watch_changes.tokens` to the staff model classes. Unblock:
 `php artisan status:security --unblock=<ip>`.
 
 **Reacting in code**: when matching on `ComponentStatus`, handle `Maintenance` too (or add a
