@@ -65,6 +65,11 @@ class StatusSecurityEvent extends Model
     {
         $key = 'system-status::status.status_security_'.$this->type;
 
+        // Changes the package watches have their own sentence (status_security_action_token_created, …).
+        if ($this->type === 'action' && filled($this->rule) && Lang::has($ruleKey = $key.'_'.str_replace('.', '_', (string) $this->rule), $locale, false)) {
+            $key = $ruleKey;
+        }
+
         if (! Lang::has($key, $locale, false)) {
             $key = 'system-status::status.status_security_'.(str_ends_with($this->type, '_critical') ? 'critical' : $this->category);
         }

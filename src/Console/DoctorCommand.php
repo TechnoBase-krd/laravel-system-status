@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Schema;
 use NotificationChannels\Telegram\TelegramMessage;
+use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Models\StatusComponent;
+use Technobase\SystemStatus\Probes\ExposedFilesProbe;
 use Technobase\SystemStatus\Probes\HttpEndpointProbe;
 use Technobase\SystemStatus\Probes\Probe;
 use Technobase\SystemStatus\Probes\SecurityConfigProbe;
@@ -341,8 +343,12 @@ class DoctorCommand extends Command
             $this->reportWarn('Migrations', "{$pending} pending migration(s). Run php artisan migrate.");
         }
 
-        if (! $this->option('no-http') && app()->environment('production') && ($url = SecurityConfigProbe::envFileExposed())) {
-            $this->reportFail('.env file', "Readable at {$url}: every secret of the application is public. Point the web server at public/.");
+        if (! $this->option('no-http') && app()->environment('production')) {
+            $exposed = (new ExposedFilesProbe)->run();
+
+            if ($exposed->status === ComponentStatus::MajorOutage) {
+                $this->reportFail('Exposed files', $exposed->message.': delete them, or point the web server at public/ and deny dot files.');
+            }
         }
 
         if (! app()->environment('production')) {

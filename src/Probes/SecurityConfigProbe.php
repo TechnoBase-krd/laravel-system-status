@@ -4,6 +4,7 @@ namespace Technobase\SystemStatus\Probes;
 
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\Facades\Http;
+use Technobase\SystemStatus\Support\ProbeSignature;
 use Throwable;
 
 /**
@@ -93,7 +94,7 @@ class SecurityConfigProbe implements Probe
         try {
             $response = Http::timeout(5)
                 ->withOptions(['verify' => (bool) config('system-status.probe_verify_ssl', true), 'allow_redirects' => false])
-                ->withHeaders(['User-Agent' => (string) config('system-status.probe_user_agent', 'SystemStatusProbe/1.0'), HttpEndpointProbe::HEADER => '1'])
+                ->withHeaders(['User-Agent' => (string) config('system-status.probe_user_agent', 'SystemStatusProbe/1.0'), HttpEndpointProbe::HEADER => '1', ...ProbeSignature::headers($url)])
                 ->get($url);
 
             return $response->successful() && preg_match('/^\s*[A-Z][A-Z0-9_]*\s*=/m', mb_substr($response->body(), 0, 4096))

@@ -17,11 +17,13 @@ use Technobase\SystemStatus\Http\Middleware\BlockSuspiciousIps;
 use Technobase\SystemStatus\Listeners\RecordSecurityChanges;
 use Technobase\SystemStatus\Models\StatusSecurityEvent;
 use Technobase\SystemStatus\Probes\ComposerAuditProbe;
+use Technobase\SystemStatus\Probes\ExposedFilesProbe;
 use Technobase\SystemStatus\Probes\SecurityFilesProbe;
 use Technobase\SystemStatus\Probes\WebShellProbe;
 use Technobase\SystemStatus\Services\DeployService;
 use Technobase\SystemStatus\Services\SecurityBlocker;
 use Technobase\SystemStatus\Services\SecurityMonitor;
+use Technobase\SystemStatus\Support\ProbeSignature;
 use Technobase\SystemStatus\Tests\Fixtures\User;
 
 const ATTACKER = '203.0.113.9';
@@ -376,6 +378,37 @@ it('reports new API tokens and role changes', function () {
         ->and($events[1]->details)->toMatchArray(['items' => 'Super Admin']);
 });
 
+it('reports new tokens only for the owners it watches', function () {
+    $listener = app(RecordSecurityChanges::class);
+    $admin = User::query()->create(['name' => 'Rawa', 'role' => 'Super Admin']);
+    $customer = User::query()->create(['name' => 'Shopper', 'role' => 'Customer']);
+    $tokenFor = function (Model $owner) {
+        $token = new class extends Model
+        {
+            protected $guarded = [];
+        };
+
+        return $token->forceFill(['name' => 'mobile'])->setRelation('tokenable', $owner);
+    };
+
+    // true: the login watch rules decide.
+    config()->set('system-status.security.logins.watch_roles', ['Super Admin']);
+    $listener->tokenCreated($tokenFor($customer));
+    $listener->tokenCreated($tokenFor($admin));
+
+    $events = StatusSecurityEvent::query()->get();
+    expect($events)->toHaveCount(1)
+        ->and($events[0]->describe('en'))->toBe('New API token "mobile" for User #'.$admin->id.' (by system)');
+
+    // A list of owner classes.
+    config()->set('system-status.security.watch_changes.tokens', [Model::class]);
+    $listener->tokenCreated($tokenFor($customer));
+    config()->set('system-status.security.watch_changes.tokens', ['App\\Models\\Admin']);
+    $listener->tokenCreated($tokenFor($admin));
+
+    expect(StatusSecurityEvent::query()->count())->toBe(2);
+});
+
 it('reports insecure production settings in status:doctor', function () {
     app()->detectEnvironment(fn () => 'production');
     config()->set('app.debug', false);
@@ -391,4 +424,47 @@ it('reports insecure production settings in status:doctor', function () {
         ->assertFailed();
 
     app()->detectEnvironment(fn () => 'testing');
+});
+
+/* ---------- exposed files ---------- */
+
+it('finds secret files the web server serves without Laravel', function () {
+    config()->set('app.url', 'https://shop.test');
+    Http::fake([
+        'shop.test/.env' => Http::response("APP_NAME=Shop\nAPP_KEY=base64:x\n"),
+        'shop.test/.git/config' => Http::response("[core]\n\trepositoryformatversion = 0\n"),
+        // A catch-all route answers every other path with a page: not a finding.
+        '*' => Http::response('<!doctype html><html><body>Home</body></html>', 200, ['Content-Type' => 'text/html']),
+    ]);
+
+    $result = (new ExposedFilesProbe)->run();
+
+    expect($result->status)->toBe(ComponentStatus::MajorOutage)
+        ->and($result->message)->toContain('/.env')->toContain('/.git/config')
+        ->and($result->message)->not->toContain('APP_KEY')->not->toContain('backup.sql');
+
+    Http::assertSent(fn ($request) => $request->hasHeader(ProbeSignature::HEADER));
+});
+
+it('is operational when nothing is exposed', function () {
+    config()->set('app.url', 'https://shop.test');
+    Http::fake(['*' => Http::response('Not found', 404)]);
+
+    expect((new ExposedFilesProbe(skip: ['info.php']))->run()->status)->toBe(ComponentStatus::Operational);
+});
+
+it('does not report the package\'s own signed checks, but does report a forged signature', function () {
+    config()->set('system-status.security.requests.scanner.max', 1);
+
+    foreach (['/.env', '/.git/config', '/backup.sql'] as $path) {
+        $this->withServerVariables(fromAttacker())
+            ->withHeaders(ProbeSignature::headers('https://shop.test'.$path))
+            ->get($path);
+    }
+    expect(StatusSecurityEvent::query()->count())->toBe(0);
+
+    foreach (['/.env', '/.git/config'] as $path) {
+        $this->withServerVariables(fromAttacker())->withHeaders([ProbeSignature::HEADER => str_repeat('a', 64)])->get($path);
+    }
+    expect(StatusSecurityEvent::query()->where('type', 'scanner')->count())->toBe(1);
 });

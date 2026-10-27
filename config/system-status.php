@@ -402,7 +402,9 @@ return [
         ],
         // Report these changes as risky actions by themselves: new API tokens (Laravel Sanctum)
         // and roles or permissions given or taken (spatie/laravel-permission with
-        // permission.events_enabled).
+        // permission.events_enabled). tokens: true = tokens of the users logins.watch_gate /
+        // watch_roles watch (everybody when neither is set), a list of owner model classes (e.g.
+        // [App\Models\Admin::class] when customers get a token at every login), or false.
         'watch_changes' => [
             'tokens' => true,
             'roles' => true,

@@ -16,6 +16,7 @@ use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\IpUtils;
 use Technobase\SystemStatus\Events\SuspiciousActivityDetected;
 use Technobase\SystemStatus\Models\StatusSecurityEvent;
+use Technobase\SystemStatus\Support\ProbeSignature;
 use Technobase\SystemStatus\Support\StatusAlerter;
 use Throwable;
 
@@ -55,7 +56,8 @@ class SecurityMonitor
 
         try {
             $ip = $request->ip();
-            if ($ip === null || $this->ignored($ip) || $this->blocker->blockedUntil($ip) !== null) {
+            // The package's own signed checks (ExposedFilesProbe, the .env check) are not attacks.
+            if ($ip === null || $this->ignored($ip) || $this->blocker->blockedUntil($ip) !== null || ProbeSignature::valid($request)) {
                 return;
             }
 
@@ -670,6 +672,19 @@ class SecurityMonitor
     /**
      * @param  array<string, mixed>  $logins
      */
+    /**
+     * Whether the logins.watch_gate / watch_roles rules watch this user (everybody when neither
+     * is set).
+     */
+    public function watchesUser(Authenticatable $user): bool
+    {
+        try {
+            return $this->watches($user, (array) config('system-status.security.logins', []));
+        } catch (Throwable) {
+            return true;
+        }
+    }
+
     private function watches(Authenticatable $user, array $logins): bool
     {
         if (filled($logins['watch_gate'] ?? null)) {

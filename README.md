@@ -415,6 +415,7 @@ argument names.
 | `QueueWaitProbe` | `queue` (`default`), `connection`, `degradedSeconds` (`60`), `outageSeconds` (`300`) | how long the oldest waiting job has waited; *Not configured* on drivers that cannot tell |
 | `DnsProbe` | `host`, `type` (`A`; also `AAAA`, `CNAME`, `MX`, `TXT`, `NS`) | the host has a record of that type |
 | `TcpPortProbe` | `host`, `port` | a TCP connection opens (SMTP, a database or search engine on its own port); slow = *degraded* |
+| `ExposedFilesProbe` | `paths`, `skip`, `baseUrl`, `timeoutSeconds` (5) | secret files anyone can download (`.env`, `.git`, logs, SQL dumps, phpinfo): *major outage*; see [Suspicious activity](#suspicious-activity) |
 | `SecurityConfigProbe` | `checkDebug` (`true`), `checkMigrations` (`true`), `checkEnvFile` (`false`), `baseUrl` | `APP_DEBUG` on in production, an empty `APP_KEY` or a readable `.env` (*major outage*), pending migrations (*degraded*); see [Suspicious activity](#suspicious-activity) |
 | `CallbackProbe` | `callback`, `label` (`Callback`) | a quick check without a probe class (see below) |
 
@@ -750,11 +751,10 @@ cache store (`security.store`); with several servers it must be shared (Redis, d
 ```
 
 `SecurityConfigProbe` is a major outage for `APP_DEBUG` in production, an empty `APP_KEY` or a
-readable `.env`, and degraded for pending migrations. With `checkEnvFile`, keep `every` at 15 or
-more so its own `.env` request does not trip the `scanner` rule (or add the server to
-`ignore_ips`).
+readable `.env`, and degraded for pending migrations. Its `.env` request is signed with the
+`APP_KEY`, so the monitor does not report your own server as a scanner.
 
-In production, `status:doctor` also warns about `APP_URL` without https, a missing HSTS header,
+In production, `status:doctor` also runs `ExposedFilesProbe` and warns about `APP_URL` without https, a missing HSTS header,
 `SESSION_SECURE_COOKIE` off, `session.http_only` off, CORS open to `*` (a failure together with
 `supports_credentials`), Debugbar on and Telescope on.
 
@@ -766,7 +766,7 @@ alert) and are reported on the first hit:
 
 | Finding | When |
 | --- | --- |
-| Scanned file served | a `scanner` path answered 2xx with something other than an HTML page (`requests.scanner.critical`): a secret file or tool may be public. HTML is skipped because a catch-all route answers every path with the app's own page. |
+| Scanned file served | a `scanner` path answered 2xx by Laravel with something other than an HTML page (`requests.scanner.critical`), e.g. a debug route or a file download route. HTML is skipped because a catch-all route answers every path with the app's own page. Real files in `public/` are served by the web server without Laravel, so this never sees them: `ExposedFilesProbe` (below) checks those. |
 | Attack payload broke the app | an `injection` payload made the app answer 500 (`requests.injection.critical`): the input may reach a query or a command unchecked |
 | Honeypot path, honeypot field, canary secret | see below |
 | Impossible travel | a user signs in from another country within `logins.impossible_travel_minutes` (120) of a login from a different one |
@@ -836,14 +836,23 @@ With `watch_changes`, a new Laravel Sanctum token and a role or permission given
 (spatie/laravel-permission with `permission.events_enabled`) are reported as risky actions, with
 who did it.
 
-### Web shells, changed code and vulnerable packages
-
-Three probes for a `security` group:
+`tokens` is `true` (tokens of the users `logins.watch_gate` / `watch_roles` watch; everybody
+when neither is set), a list of owner model classes, or `false`. When customers get a token at
+every app login, list only the staff models so a login is not an alert:
 
 ```php
-use Technobase\SystemStatus\Probes\{ComposerAuditProbe, SecurityFilesProbe, WebShellProbe};
+'watch_changes' => ['tokens' => [App\Models\Admin::class], 'roles' => true],
+```
+
+### Exposed files, web shells, changed code and vulnerable packages
+
+Four probes for a `security` group:
+
+```php
+use Technobase\SystemStatus\Probes\{ComposerAuditProbe, ExposedFilesProbe, SecurityFilesProbe, WebShellProbe};
 
 'security' => [
+    'exposed_files' => ['probes' => [['class' => ExposedFilesProbe::class, 'every' => 15]]],
     'web_shells' => ['probes' => [['class' => WebShellProbe::class, 'every' => 30]]],
     'code_files' => ['probes' => [['class' => SecurityFilesProbe::class, 'every' => 15]]],
     'packages' => ['probes' => [['class' => ComposerAuditProbe::class, 'every' => 720]]],
@@ -852,6 +861,7 @@ use Technobase\SystemStatus\Probes\{ComposerAuditProbe, SecurityFilesProbe, WebS
 
 | Probe | Options (`with`) | Checks |
 | --- | --- | --- |
+| `ExposedFilesProbe` | `paths` (extra path => regex its content matches), `skip`, `baseUrl`, `timeoutSeconds` (5) | downloads `.env` and its backups, `.git/config`, `.git/HEAD`, `laravel.log`, SQL dumps, `phpinfo.php`, `adminer.php` and `auth.json` from the site, the way an attacker would: *major outage* when one answers with that kind of content (a catch-all page is not a finding). Never prints what it got. Its requests are signed with the `APP_KEY`, so the monitor skips them. |
 | `WebShellProbe` | `paths` (`public`, `storage/app/public`), `allow` (`public/index.php`), `extensions`, `maxFiles` (20 000) | PHP and other executable files where only assets and uploads belong, and uploads whose first bytes are PHP (an image with a shell inside): *major outage* |
 | `SecurityFilesProbe` | – | code files (`security.files`) added or changed since the last `status:deploy`: *major outage*; removed: *degraded*. The baseline is saved by every deploy (`files.baseline_on_deploy`) or `php artisan status:security --baseline`. |
 | `ComposerAuditProbe` | `binary` (`composer`), `timeoutSeconds` (60) | `composer audit --locked`: a high or critical advisory is a *major outage*, others *degraded*; skipped without composer |

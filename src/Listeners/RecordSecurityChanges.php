@@ -25,10 +25,14 @@ class RecordSecurityChanges
         try {
             $owner = $token instanceof Model ? $token->getRelationValue('tokenable') : null;
 
-            $this->monitor->action('token.created', $this->actor(), array_filter([
-                'token' => $token instanceof Model ? (string) $token->getAttribute('name') : null,
-                'for' => $owner instanceof Model ? class_basename($owner).' #'.$owner->getKey() : null,
-            ]), StatusSecurity::requestIp(), true);
+            if (! $this->watchesTokensOf($owner)) {
+                return;
+            }
+
+            $this->monitor->action('token.created', $this->actor(), [
+                'token' => $token instanceof Model ? (string) ($token->getAttribute('name') ?: '?') : '?',
+                'for' => $owner instanceof Model ? class_basename($owner).' #'.$owner->getKey() : '?',
+            ], StatusSecurity::requestIp(), true);
         } catch (Throwable) {
             // Monitoring must never affect the caller.
         }
@@ -47,14 +51,35 @@ class RecordSecurityChanges
                 ->filter(fn ($item) => is_scalar($item))
                 ->implode(', ');
 
-            $this->monitor->action('roles.'.(str_contains(class_basename($event), 'Detached') ? 'detached' : 'attached'), $this->actor(), array_filter([
+            $this->monitor->action('roles.'.(str_contains(class_basename($event), 'Detached') ? 'detached' : 'attached'), $this->actor(), [
                 'change' => class_basename($event),
-                'target' => $model instanceof Model ? class_basename($model).' #'.$model->getKey() : null,
-                'items' => $names !== '' ? $names : null,
-            ]), StatusSecurity::requestIp(), true);
+                'target' => $model instanceof Model ? class_basename($model).' #'.$model->getKey() : '?',
+                'items' => $names !== '' ? $names : '?',
+            ], StatusSecurity::requestIp(), true);
         } catch (Throwable) {
             // Monitoring must never affect the caller.
         }
+    }
+
+    /**
+     * watch_changes.tokens: true = owners the login watch rules watch, a list = owners of these
+     * model classes.
+     */
+    private function watchesTokensOf(mixed $owner): bool
+    {
+        $setting = config('system-status.security.watch_changes.tokens', true);
+
+        if (is_array($setting)) {
+            foreach ($setting as $class) {
+                if (is_string($class) && $owner instanceof $class) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return ! $owner instanceof Authenticatable || $this->monitor->watchesUser($owner);
     }
 
     private function actor(): ?Authenticatable
