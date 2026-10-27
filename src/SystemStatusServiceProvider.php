@@ -58,8 +58,10 @@ class SystemStatusServiceProvider extends ServiceProvider
         }
 
         if ($security && config('system-status.security.block.enabled', false) && $this->app->bound(Kernel::class)) {
-            // Blocked IPs get 403 before sessions, auth and the database (security.block).
-            $this->app->make(Kernel::class)->prependMiddleware(BlockSuspiciousIps::class);
+            // Blocked IPs get 403 before sessions, auth and the database (security.block). Added
+            // to the end of the global stack so it runs after TrustProxies and sees the visitor's
+            // IP behind a proxy, load balancer or Cloudflare.
+            $this->app->make(Kernel::class)->pushMiddleware(BlockSuspiciousIps::class);
         }
 
         if ($security) {

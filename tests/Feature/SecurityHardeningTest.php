@@ -2,6 +2,7 @@
 
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Session\ArraySessionHandler;
 use Illuminate\Session\Store;
@@ -60,7 +61,7 @@ it('blocks an IP with a serious finding, also at Cloudflare, and unblocks it', f
         'cloudflare' => ['token' => 'cf-token', 'zone_id' => 'zone-1'],
     ]);
     config()->set('system-status.security.requests.scanner.max', 1);
-    $this->app->make(Kernel::class)->prependMiddleware(BlockSuspiciousIps::class);
+    $this->app->make(Kernel::class)->pushMiddleware(BlockSuspiciousIps::class);
 
     $this->withServerVariables(fromAttacker())->get('/wp-login.php')->assertNotFound();
     $this->withServerVariables(fromAttacker())->get('/xmlrpc.php')->assertNotFound();
@@ -82,6 +83,31 @@ it('blocks an IP with a serious finding, also at Cloudflare, and unblocks it', f
 
     Http::assertSent(fn ($request) => $request->method() === 'DELETE' && str_ends_with($request->url(), '/rules/cf-rule-1'));
     $this->withServerVariables(fromAttacker())->get('/plain/x')->assertOk();
+});
+
+it('blocks the visitor behind a trusted proxy, not the proxy', function () {
+    config()->set('system-status.security.block.enabled', true);
+    config()->set('system-status.security.requests.scanner.max', 1);
+    $kernel = $this->app->make(Kernel::class);
+    $kernel->prependMiddleware(TrustProxies::class);
+    $kernel->pushMiddleware(BlockSuspiciousIps::class);
+    TrustProxies::at('*');
+
+    // Each request starts fresh, as on PHP-FPM: only TrustProxies sets the trusted proxies.
+    $send = function (string $path, string $client) {
+        Request::setTrustedProxies([], 0);
+
+        return $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.5', 'HTTP_X_FORWARDED_FOR' => $client])->get($path);
+    };
+
+    $send('/wp-login.php', ATTACKER);
+    $send('/xmlrpc.php', ATTACKER);
+
+    $send('/plain/x', ATTACKER)->assertForbidden();
+    $send('/plain/x', '198.51.100.1')->assertOk();
+
+    TrustProxies::flushState();
+    Request::setTrustedProxies([], 0);
 });
 
 it('ends blocks when their time is up', function () {

@@ -8,8 +8,9 @@ use Symfony\Component\HttpFoundation\Response;
 use Technobase\SystemStatus\Services\SecurityBlocker;
 
 /**
- * Answers 403 to IPs blocked by security.block. Prepended to the global middleware, so a blocked
- * request costs one cache read and never reaches sessions, auth or the database.
+ * Answers 403 to IPs blocked by security.block. A global middleware that runs after TrustProxies
+ * (so it sees the visitor's IP) and before the route's sessions, auth and database work, so a
+ * blocked request costs one cache read.
  */
 class BlockSuspiciousIps
 {
