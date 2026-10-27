@@ -7,10 +7,11 @@ use Technobase\SystemStatus\Http\Controllers\StatusReportController;
 use Technobase\SystemStatus\Http\Controllers\SystemStatusController;
 use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatus;
 use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatusManagement;
+use Technobase\SystemStatus\Http\Middleware\EnsureSystemStatusEnabled;
 
 $path = trim((string) config('system-status.path', 'system-status'), '/');
 
-Route::middleware([...(array) config('system-status.middleware', ['web', 'auth']), AuthorizeSystemStatus::class])
+Route::middleware([EnsureSystemStatusEnabled::class, ...(array) config('system-status.middleware', ['web', 'auth']), AuthorizeSystemStatus::class])
     ->group(function () use ($path) {
         Route::get($path, [SystemStatusController::class, 'index'])->name('system_status.index');
         Route::get($path.'/summary', [SystemStatusController::class, 'summary'])->name('system_status.summary');
@@ -42,5 +43,5 @@ Route::middleware([...(array) config('system-status.middleware', ['web', 'auth']
 
 // Deploys from CI: a bearer token (system-status.deploys.token), not a session, so no web middleware.
 Route::post($path.'/deploys', [DeployController::class, 'store'])
-    ->middleware('throttle:30,1')
+    ->middleware([EnsureSystemStatusEnabled::class, 'throttle:30,1'])
     ->name('system_status.deploys.store');

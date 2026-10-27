@@ -27,6 +27,12 @@ use Technobase\SystemStatus\Probes\SpatieCheckProbe;
  * lang/vendor/system-status/<locale>/status.php.
  */
 return [
+    // SYSTEM_STATUS_ENABLED=false turns the whole package off: no traffic counting, signals,
+    // schedule, status:check runs or alerts, and the page and its endpoints answer 404 (route
+    // names stay registered, so links to them keep working). Migrations, commands and
+    // translations still load. true (the default) changes nothing.
+    'enabled' => (bool) env('SYSTEM_STATUS_ENABLED', true),
+
     // The page: URL, middleware, who may open it and which layout it extends.
     'path' => 'system-status',
     'middleware' => ['web', 'auth'],

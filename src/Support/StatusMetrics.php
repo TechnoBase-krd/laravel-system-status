@@ -24,6 +24,10 @@ class StatusMetrics
 
     public static function record(string $component, string $route, bool $failed, int $durationMs = 0, bool $slow = false): void
     {
+        if (! config('system-status.enabled', true)) {
+            return;
+        }
+
         try {
             $key = self::KEY_PREFIX.(intdiv(time(), 60) * 60);
             $field = $component.self::SEPARATOR.$route.self::SEPARATOR;

@@ -13,6 +13,12 @@ class RunStatusChecksCommand extends Command
 
     public function handle(StatusService $service): int
     {
+        if (! config('system-status.enabled', true)) {
+            $this->warn('System Status is turned off (SYSTEM_STATUS_ENABLED=false); nothing was checked.');
+
+            return self::SUCCESS;
+        }
+
         $result = $service->run();
 
         $this->info("Probes run: {$result['probes_run']}. Traffic minutes flushed: {$result['flushed_minutes']}.");

@@ -315,6 +315,7 @@ All options live in `config/system-status.php`.
 
 | Key | Default | What it does |
 | --- | --- | --- |
+| `enabled` | `env('SYSTEM_STATUS_ENABLED', true)` | `SYSTEM_STATUS_ENABLED=false` turns the whole package off: no traffic counting, signals, schedule, `status:check` runs or alerts, and every package route answers 404 (route names stay, so links keep working). Migrations and commands still load |
 | `path` | `system-status` | URL of the page; the data endpoints are `<path>/summary`, `<path>/components/{key}` and `<path>/reports/{YYYY-MM}.{html\|csv\|pdf}` |
 | `middleware` | `['web', 'auth']` | middleware of the page routes (the access check is always added) |
 | `access.roles` | `['Super Admin']` | roles allowed in, checked with `$user->hasRole()` |
@@ -1121,7 +1122,7 @@ that break `config:cache`. It exits with an error when something is broken.
 | A component name looks like "Api Orders" | no label for it | add `status_component_<key>` in `lang/vendor/system-status` |
 | 403 on the page | the user has none of `access.roles` (or fails `access.gate`) | change the access settings |
 | No "Report incident" / "Schedule maintenance" buttons | the user fails `access.manage_gate` | change the gate |
-| No alerts | `local` environment, `SYSTEM_STATUS_ALERTS_ENABLED=false`, or a channel without credentials (Telegram: no chat id, bot token or package) | `php artisan status:test-alert` shows the result per channel |
+| No alerts | `local` environment, `SYSTEM_STATUS_ENABLED=false`, `SYSTEM_STATUS_ALERTS_ENABLED=false`, or a channel without credentials (Telegram: no chat id, bot token or package) | `php artisan status:test-alert` shows the result per channel |
 | "… is flapping" and then silence | flap protection | wait until it is stable, fix the cause, or change `alerts.flap` |
 | Report shows "—" for earlier months | `status_monthly` is filled from this version on | nothing to do; later months fill in |
 | No PDF link on the report | `barryvdh/laravel-dompdf` is not installed | `composer require barryvdh/laravel-dompdf` |

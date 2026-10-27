@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `enabled` (`SYSTEM_STATUS_ENABLED`, default `true`) turns the whole package off: no traffic
+  counting, signals, schedule, `status:check` runs or alerts, and the page, its endpoints and
+  `POST {path}/deploys` answer 404. Route names stay registered, so menu links keep working;
+  migrations, commands and translations still load. `status:doctor` shows it. With `true`,
+  nothing changes.
 - Deploy markers: `php artisan status:deploy 1.8.2` (or `POST {path}/deploys` from CI with
   `deploys.token`) records a deploy. It shows as a line on the bars and the detail charts, as
   "Last deploy" and in a *Recent deploys* list; incidents that start within

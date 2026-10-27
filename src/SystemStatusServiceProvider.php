@@ -35,12 +35,14 @@ class SystemStatusServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $enabled = (bool) config('system-status.enabled', true);
+
         $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
         $this->loadViewsFrom(__DIR__.'/../resources/views', 'system-status');
         $this->loadTranslationsFrom(__DIR__.'/../lang', 'system-status');
 
-        if (config('system-status.record_traffic', true) && $this->app->bound(Kernel::class)) {
+        if ($enabled && config('system-status.record_traffic', true) && $this->app->bound(Kernel::class)) {
             // Counts requests and 5xx per component after the response is sent.
             $this->app->make(Kernel::class)->pushMiddleware(RecordRouteHealth::class);
         }
@@ -80,7 +82,7 @@ class SystemStatusServiceProvider extends ServiceProvider
             Livewire::component('system-status.pulse', Pulse\SystemStatusCard::class);
         }
 
-        if (config('system-status.schedule', true)) {
+        if ($enabled && config('system-status.schedule', true)) {
             $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
                 // The overlap lock expires after 5 minutes so a killed run cannot stop the checks.
                 $this->onOneServer($schedule->command('status:check')->everyMinute()->withoutOverlapping(5)->runInBackground());

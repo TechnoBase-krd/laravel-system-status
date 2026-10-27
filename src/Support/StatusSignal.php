@@ -23,6 +23,10 @@ class StatusSignal
      */
     public static function failure(string $component, string $reason): void
     {
+        if (! config('system-status.enabled', true)) {
+            return;
+        }
+
         StatusMetrics::record($component, StatusMetrics::SIGNAL_ROUTE, true);
 
         try {

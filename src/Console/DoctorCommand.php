@@ -32,6 +32,10 @@ class DoctorCommand extends Command
 
     public function handle(StatusRegistry $registry, Router $router, RouteComponentResolver $resolver, StatusAlerter $alerter): int
     {
+        if (! config('system-status.enabled', true)) {
+            $this->reportWarn('Package', 'Turned off (SYSTEM_STATUS_ENABLED=false): no counting, checks or alerts, and the page answers 404.');
+        }
+
         $this->tables();
         $this->redis();
         $this->scheduler();

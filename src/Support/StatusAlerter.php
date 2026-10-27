@@ -240,7 +240,9 @@ class StatusAlerter
 
     private function enabled(): bool
     {
-        return config('system-status.alerts.enabled', true) && ! app()->environment('local');
+        return config('system-status.enabled', true)
+            && config('system-status.alerts.enabled', true)
+            && ! app()->environment('local');
     }
 
     /**

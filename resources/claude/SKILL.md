@@ -49,6 +49,9 @@ agree; the change opens or resolves an incident, sends one alert to `alerts.chan
 `alerts.webhooks` (unless `alerts.enabled` is false or in `local`), and fires
 `ComponentStatusChanged`.
 
+`SYSTEM_STATUS_ENABLED=false` (`enabled`) turns the whole package off: nothing is counted,
+checked or alerted, and the page answers 404 while its route names stay registered.
+
 - **Maintenance window**: the component shows `Maintenance` at once (`ComponentStatus::Maintenance`):
   no incident, no alert, no `ComponentStatusChanged`, and the time does not count against
   uptime. When the window ends, the observed status is taken without confirmation.
