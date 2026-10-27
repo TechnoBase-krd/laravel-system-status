@@ -6,10 +6,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\View\View;
+use Technobase\SystemStatus\Actions\GetSecurityEventAction;
 use Technobase\SystemStatus\Actions\GetStatusComponentAction;
 use Technobase\SystemStatus\Actions\GetStatusSummaryAction;
 use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatusManagement;
 use Technobase\SystemStatus\Http\Requests\StatusSummaryRequest;
+use Technobase\SystemStatus\Models\StatusSecurityEvent;
 use Technobase\SystemStatus\Support\StatusRegistry;
 
 /**
@@ -60,6 +62,14 @@ class SystemStatusController extends Controller
     public function summary(StatusSummaryRequest $request, GetStatusSummaryAction $action): JsonResponse
     {
         return response()->json(['data' => $action->execute($request->range())]);
+    }
+
+    /**
+     * One suspicious activity finding for the detail dialog.
+     */
+    public function security(int $event, GetSecurityEventAction $action): JsonResponse
+    {
+        return response()->json(['data' => $action->execute(StatusSecurityEvent::query()->findOrFail($event))]);
     }
 
     /**

@@ -26,6 +26,10 @@ history, opens incidents by itself and alerts you on Telegram, mail, Slack or Di
   (Investigating, Identified, Monitoring, Resolved) and a postmortem.
 - **Maintenance windows**: planned work shows *Maintenance*, raises no alert and does not count
   against uptime.
+- **Suspicious activity** (opt-in): attack patterns per IP (denied requests, scanners looking
+  for `.env` or `wp-admin`, rate-limited clients), login abuse, logins from a new country, SMS /
+  OTP budget abuse, risky actions such as role changes or mass exports, and dangerous settings
+  like `APP_DEBUG` in production.
 - **Alerts**: Telegram, mail, Slack, Discord and signed webhooks, plus Laravel events you can
   listen to.
 - **SLA and reports**: monthly uptime per component against a target, as a page, CSV or PDF.
@@ -49,6 +53,7 @@ Used in production by Khatun-Ecommerce and CloudNova-OnlineShopping.
 - [Maintenance windows](#maintenance-windows)
 - [Incidents](#incidents)
 - [Deploy markers](#deploy-markers)
+- [Suspicious activity](#suspicious-activity)
 - [Alerts](#alerts)
 - [Latency](#latency)
 - [Dependencies](#dependencies)
@@ -410,6 +415,7 @@ argument names.
 | `QueueWaitProbe` | `queue` (`default`), `connection`, `degradedSeconds` (`60`), `outageSeconds` (`300`) | how long the oldest waiting job has waited; *Not configured* on drivers that cannot tell |
 | `DnsProbe` | `host`, `type` (`A`; also `AAAA`, `CNAME`, `MX`, `TXT`, `NS`) | the host has a record of that type |
 | `TcpPortProbe` | `host`, `port` | a TCP connection opens (SMTP, a database or search engine on its own port); slow = *degraded* |
+| `SecurityConfigProbe` | `checkDebug` (`true`), `checkMigrations` (`true`), `checkEnvFile` (`false`), `baseUrl` | `APP_DEBUG` on in production, an empty `APP_KEY` or a readable `.env` (*major outage*), pending migrations (*degraded*); see [Suspicious activity](#suspicious-activity) |
 | `CallbackProbe` | `callback`, `label` (`Callback`) | a quick check without a probe class (see below) |
 
 ```php
@@ -647,6 +653,106 @@ With `compare.enabled`, `status:check` compares each component's error rate and 
 clearly worse ("⚠️ Worse in the 15 min after deploy 1.8.2: Orders: errors 0.3% → 4.1%"). The
 marker turns red on those components and *Recent deploys* shows the result. Listen to
 `Technobase\SystemStatus\Events\DeployRecorded` to react in code.
+
+---
+
+## Suspicious activity
+
+Off by default. `SYSTEM_STATUS_SECURITY_ENABLED=true` watches for signs that someone is
+attacking or misusing the application. Each finding is stored, listed in a live *Suspicious
+activity (24 h)* panel on the page (shown with a pulsing *Live* badge whenever monitoring is on;
+click a finding for its rule, request, other findings from the same IP and what to do) and in `php artisan status:security`, sent to the alert channels
+(`🛡️ Suspicious activity: 34 denied requests (401, 403, 419) from 203.0.113.9 in 5 min`), posted
+to webhooks as `security.suspicious_activity`, and fires
+`Technobase\SystemStatus\Events\SuspiciousActivityDetected`. The same finding (rule + IP or
+account) alerts once per `cooldown_minutes` (30); while it goes on, its hit count keeps growing.
+
+| What | Rule | Default |
+| --- | --- | --- |
+| Denied requests (401, 403, 419) from one IP | `requests.auth_errors` | more than 30 in 5 min |
+| Rate-limited requests (429) from one IP | `requests.rate_limited` | more than 50 in 5 min |
+| Scanner paths from one IP: secrets (`.env`, `.git/*`, `.aws/*`, `id_rsa`), Laravel internals (`storage/logs/*`, `vendor/*`, `_ignition/*`), backups (`*.sql`, `*.bak`, `backup.zip`), WordPress, phpMyAdmin / Adminer, web shells and known exploit paths (`eval-stdin.php`, `actuator`, `owa/*`, cloud metadata) | `requests.scanner` | more than 3 in 10 min |
+| Attack payloads in the URL from one IP: SQL injection (`union select`, `sleep(`), XSS (`<script`, `onerror=`), path traversal (`../`, `/etc/passwd`), file inclusion (`php://`), command and template injection, Log4Shell (`${jndi:`), SSRF to `169.254.169.254` | `requests.injection` | more than 2 in 10 min |
+| Known attack tools by User-Agent (sqlmap, Nikto, Nuclei, WPScan, gobuster, ffuf, Acunetix, …) | `requests.scanner_tools` | more than 1 in 10 min |
+| Not-found requests (404) from one IP | `requests.not_found` | more than 100 in 5 min |
+| Failed logins from one IP / for one account | `logins.failed` / `logins.failed_per_account` | more than 10 / 5 in 10 min |
+| A user signs in from a country they never used | `logins.new_country` | on (needs a country header) |
+| A user signs in from an IP they never used | `logins.new_ip` | off |
+| Signal calls (SMS, OTP) above a budget, in total or from one IP | `signals.<component>` | none set |
+| Risky actions reported from code | `actions.<name>` | `roles.changed` always, `export` more than 10 / h, `bulk_delete` more than 3 / h |
+| Any reported action in quiet hours | `quiet_hours` | off |
+
+```php
+'security' => [
+    'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_ENABLED', false),
+    'ignore_ips' => ['10.0.0.0/8'],                       // office, monitoring, own servers
+    'requests' => [
+        // Your own rule, counted per IP. Every condition it sets must match (case-insensitive):
+        // statuses, paths (Str::is), contains (text in the decoded URL), user_agents.
+        'admin_probing' => ['statuses' => [403], 'paths' => ['admin/*'], 'max' => 10, 'minutes' => 5],
+    ],
+    'logins' => [
+        'country_header' => 'CF-IPCountry',             // Cloudflare; null = no country check
+        'new_ip' => true,
+        'watch_roles' => ['Super Admin'],                // or 'watch_gate' => 'viewSystemStatus'
+    ],
+    'signals' => [
+        'otp' => ['max' => 500, 'max_per_ip' => 10, 'minutes' => 60],
+    ],
+    'actions' => [
+        'roles.changed' => ['alert' => true],
+        'export' => ['max' => 10, 'minutes' => 60],
+    ],
+    'quiet_hours' => ['from' => '23:00', 'to' => '06:00'],
+],
+```
+
+**Requests** are checked by the same middleware that counts traffic, after the response is
+sent, including URLs without a route (that is where scanners go). **Logins** come from Laravel's
+`Illuminate\Auth\Events\Failed` and `Login`, which Breeze, Fortify, Jetstream, Filament and
+`Auth::attempt()` fire. Only the account name is read from the credentials, never the password,
+and it is masked (`sa***@example.com`). **Signals** are the existing `StatusSignal` calls; the
+per-IP limit applies while handling a request (not in queue workers). **Actions** are reported
+from code:
+
+```php
+use Technobase\SystemStatus\Support\StatusSecurity;
+
+StatusSecurity::action('roles.changed', auth()->user(), ['target' => 'User #12']);
+StatusSecurity::action('export');   // the signed-in user
+```
+
+Details must be short scalars without secrets or personal data. React in code, for example to
+block an IP:
+
+```php
+Event::listen(SuspiciousActivityDetected::class, function (SuspiciousActivityDetected $e) {
+    if ($e->event->type === 'scanner') {
+        Firewall::block($e->event->ip);   // your own code
+    }
+});
+```
+
+Request IPs come from `$request->ip()`. Behind a load balancer or Cloudflare, set Laravel's
+trusted proxies, or every request seems to come from the proxy. The counters use the default
+cache store (`security.store`); with several servers it must be shared (Redis, database).
+
+**Dangerous settings.** `status:doctor` reports `APP_DEBUG` on in production, an empty
+`APP_KEY`, pending migrations and, in production, a `.env` file readable at `APP_URL/.env`
+(`--no-http` skips that request). The same checks can run as a probe on the page:
+
+```php
+'security_config' => [
+    'probes' => [
+        ['class' => SecurityConfigProbe::class, 'with' => ['checkEnvFile' => true], 'every' => 15],
+    ],
+],
+```
+
+`SecurityConfigProbe` is a major outage for `APP_DEBUG` in production, an empty `APP_KEY` or a
+readable `.env`, and degraded for pending migrations. With `checkEnvFile`, keep `every` at 15 or
+more so its own `.env` request does not trip the `scanner` rule (or add the server to
+`ignore_ips`).
 
 ---
 
@@ -1028,8 +1134,9 @@ return [
 | `status:maintenance` | by hand / deploy scripts | schedules, lists or ends maintenance windows (`components…`, `--all`, `--minutes=30`, `--start=`, `--title=`, `--message=`, `--end=<id\|all>`, `--list`) |
 | `status:report` | by hand | monthly uptime against SLA (`--month=YYYY-MM`, `--previous`, `--format=table\|csv\|html\|pdf`, `--output=`, `--mail=`, `--send`) |
 | `status:test-alert` | by hand | sends a test alert to each channel and shows the result (`--channel=`, `--webhooks`, `--force`) |
-| `status:doctor` | by hand | checks the setup and prints one line per check |
+| `status:doctor` | by hand | checks the setup and dangerous settings, one line per check (`--no-http`) |
 | `status:deploy` | deploy scripts | records a deploy (`release`, `--commit=`, `--note=`, `--by=`, `--at=`, `--list`) |
+| `status:security` | by hand | lists suspicious activity (`--hours=24`, `--type=`, `--ip=`, `--limit=50`) |
 
 Set `schedule` to `false` to schedule them yourself.
 
@@ -1048,6 +1155,8 @@ Set `schedule` to `false` to schedule them yourself.
 | `status_incident_updates` | the timeline of each incident: state, message, author | with their incident |
 | `status_maintenances` | maintenance windows: title, message, components, start and end | 90 days after they end |
 | `status_deploys` | deploys: version, commit, note, who, when, and the before/after comparison | 90 days |
+| `status_security_events` | suspicious activity findings: rule, IP, subject, country, hits, when | 90 days (`retention_days.security`) |
+| `status_security_logins` | the IPs and countries each watched user signed in from | 90 days after the last login |
 
 The migrations create tables and columns only when they do not exist yet, so they are safe on a
 database that already has them.

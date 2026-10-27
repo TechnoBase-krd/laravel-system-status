@@ -7,17 +7,23 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Symfony\Component\HttpFoundation\Response;
 use Technobase\SystemStatus\Probes\HttpEndpointProbe;
+use Technobase\SystemStatus\Services\SecurityMonitor;
 use Technobase\SystemStatus\Support\RouteComponentResolver;
 use Technobase\SystemStatus\Support\StatusMetrics;
 use Throwable;
 
 /**
  * Counts every request per System Status component after the response is sent. 5xx responses
- * are failures; 4xx (validation, business errors, auth) are not. Never changes the response.
+ * are failures; 4xx (validation, business errors, auth) are not. With security.enabled, also
+ * passes every request (routed or not) to the suspicious activity monitor. Never changes the
+ * response.
  */
 class RecordRouteHealth
 {
-    public function __construct(private readonly RouteComponentResolver $resolver) {}
+    public function __construct(
+        private readonly RouteComponentResolver $resolver,
+        private readonly SecurityMonitor $security,
+    ) {}
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -26,6 +32,13 @@ class RecordRouteHealth
 
     public function terminate(Request $request, Response $response): void
     {
+        // Before the route check: scanners mostly hit URLs without a route.
+        $this->security->request($request, $response->getStatusCode());
+
+        if (! config('system-status.record_traffic', true)) {
+            return;
+        }
+
         try {
             $route = $request->route();
 

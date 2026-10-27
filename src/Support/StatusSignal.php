@@ -4,6 +4,7 @@ namespace Technobase\SystemStatus\Support;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Technobase\SystemStatus\Services\SecurityMonitor;
 use Throwable;
 
 /**
@@ -16,6 +17,7 @@ class StatusSignal
     public static function success(string $component): void
     {
         StatusMetrics::record($component, StatusMetrics::SIGNAL_ROUTE, false);
+        self::watchVolume($component);
     }
 
     /**
@@ -28,6 +30,7 @@ class StatusSignal
         }
 
         StatusMetrics::record($component, StatusMetrics::SIGNAL_ROUTE, true);
+        self::watchVolume($component);
 
         try {
             Cache::put(self::lastFailureKey($component), [
@@ -45,6 +48,20 @@ class StatusSignal
             return Cache::get(self::lastFailureKey($component));
         } catch (Throwable) {
             return null;
+        }
+    }
+
+    /**
+     * Counts the call against security.signals (OTP / SMS budget abuse).
+     */
+    private static function watchVolume(string $component): void
+    {
+        try {
+            if (config('system-status.security.enabled', false)) {
+                app(SecurityMonitor::class)->signal($component, StatusSecurity::requestIp());
+            }
+        } catch (Throwable) {
+            // Counting is best effort.
         }
     }
 

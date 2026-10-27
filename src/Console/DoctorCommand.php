@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Schema;
 use NotificationChannels\Telegram\TelegramMessage;
 use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Probes\Probe;
+use Technobase\SystemStatus\Probes\SecurityConfigProbe;
 use Technobase\SystemStatus\Support\RouteComponentResolver;
 use Technobase\SystemStatus\Support\StatusAlerter;
 use Technobase\SystemStatus\Support\StatusHeartbeat;
@@ -23,9 +24,9 @@ use Throwable;
  */
 class DoctorCommand extends Command
 {
-    protected $signature = 'status:doctor';
+    protected $signature = 'status:doctor {--no-http : Skip the check that requests APP_URL/.env}';
 
-    protected $description = 'Check the System Status setup: tables, Redis, scheduler, components, probes, labels and alerts.';
+    protected $description = 'Check the System Status setup (tables, Redis, scheduler, components, probes, labels, alerts) and dangerous settings of the application.';
 
     /** @var array<int, array{0: string, 1: string, 2: string}> */
     private array $rows = [];
@@ -44,6 +45,8 @@ class DoctorCommand extends Command
         $this->labels($registry);
         $this->alerts($alerter);
         $this->cachedConfig($registry);
+        $this->security();
+        $this->dangerousSettings();
 
         $this->table(['', 'Check', 'Result'], array_map(fn ($row) => [match ($row[0]) {
             'ok' => '<info>✓</info>',
@@ -70,6 +73,8 @@ class DoctorCommand extends Command
             'status_maintenances' => [],
             'status_monthly' => [],
             'status_deploys' => [],
+            'status_security_events' => [],
+            'status_security_logins' => [],
         ];
 
         try {
@@ -288,6 +293,46 @@ class DoctorCommand extends Command
 
         if ($closures) {
             $this->reportWarn('Config cache', 'Closures in probe config ('.implode(', ', array_unique($closures)).') break php artisan config:cache. Use an invokable class.');
+        }
+    }
+
+    private function security(): void
+    {
+        if (! config('system-status.security.enabled', false)) {
+            $this->reportWarn('Suspicious activity', 'Off. SYSTEM_STATUS_SECURITY_ENABLED=true watches attack patterns, login abuse, signal volume and risky actions.');
+
+            return;
+        }
+
+        $store = config('system-status.security.store') ?: config('cache.default');
+        $driver = config("cache.stores.{$store}.driver");
+
+        if (in_array($driver, ['array', 'null'], true)) {
+            $this->reportFail('Suspicious activity', "Cache store \"{$store}\" ({$driver}) forgets the counters after each request: nothing is ever detected. Set security.store.");
+        } elseif ($driver === 'file') {
+            $this->reportWarn('Suspicious activity', "On, counters in the \"{$store}\" file cache: with several servers each one counts on its own.");
+        } else {
+            $this->reportOk('Suspicious activity', "On, counters in the \"{$store}\" cache. Behind a proxy, check that trusted proxies are set so request IPs are real.");
+        }
+    }
+
+    private function dangerousSettings(): void
+    {
+        if (config('app.debug') && app()->environment('production')) {
+            $this->reportFail('APP_DEBUG', 'On in production: error pages show stack traces, queries and settings to visitors.');
+        }
+
+        if (blank(config('app.key'))) {
+            $this->reportFail('APP_KEY', 'Empty: sessions and encrypted values are not safe. Run php artisan key:generate.');
+        }
+
+        $pending = SecurityConfigProbe::pendingMigrations();
+        if ($pending) {
+            $this->reportWarn('Migrations', "{$pending} pending migration(s). Run php artisan migrate.");
+        }
+
+        if (! $this->option('no-http') && app()->environment('production') && ($url = SecurityConfigProbe::envFileExposed())) {
+            $this->reportFail('.env file', "Readable at {$url}: every secret of the application is public. Point the web server at public/.");
         }
     }
 

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Suspicious activity monitoring, off by default (`security.enabled`,
+  `SYSTEM_STATUS_SECURITY_ENABLED`). Per-IP request rules (denied 401/403/419, rate-limited 429,
+  about 150 scanner paths (secrets, Laravel logs and `vendor`, backups, WordPress, admin tools, web
+  shells, exploit paths), attack payloads in the URL (SQL injection, XSS, traversal, file
+  inclusion, command / template injection, Log4Shell, SSRF), attack tools by User-Agent, many
+  404s, plus your own rules with `statuses`, `paths`, `contains` and `user_agents`), failed logins
+  per IP and per account, logins from a new country (`CF-IPCountry`) or IP, signal volume limits
+  for SMS / OTP budgets (`security.signals`) and risky actions reported with
+  `StatusSecurity::action()` (always, by volume or in `quiet_hours`). Findings are stored, shown
+  in a live *Suspicious activity (24 h)* panel (always visible while monitoring is on, with a
+  *Live* badge, the number of rules watching and a flash when a new finding arrives; each finding
+  opens a detail dialog with the rule, request facts, other findings from the same IP and what
+  to do, from the new `system_status.security.show` route) and `php artisan status:security`, alerted once per
+  `cooldown_minutes` and posted as the `security.suspicious_activity` webhook event. New
+  `SuspiciousActivityDetected` event, `SecurityConfigProbe`, `status_security_events` and
+  `status_security_logins` tables (run `php artisan migrate`), `retention_days.security` and the
+  summary's `security` field (null while off). `status:doctor` also reports `APP_DEBUG` on in
+  production, an empty `APP_KEY`, pending migrations and a `.env` readable over HTTP
+  (`--no-http` skips the request). With the option off, nothing changes.
 - `enabled` (`SYSTEM_STATUS_ENABLED`, default `true`) turns the whole package off: no traffic
   counting, signals, schedule, `status:check` runs or alerts, and the page, its endpoints and
   `POST {path}/deploys` answer 404. Route names stay registered, so menu links keep working;

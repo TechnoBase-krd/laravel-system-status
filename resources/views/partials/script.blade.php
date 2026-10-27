@@ -64,6 +64,20 @@
             deploy: @json(__('system-status::status.status_deploy', ['version' => ':version'])),
             afterDeploy: @json(__('system-status::status.status_after_deploy', ['minutes' => ':minutes', 'version' => ':version'])),
             lastDeploy: @json(__('system-status::status.status_last_deploy', ['version' => ':version', 'ago' => ':ago'])),
+            securityCount: @json(__('system-status::status.status_security_count', ['count' => ':count'])),
+            securityHits: @json(__('system-status::status.status_security_hits', ['hits' => ':hits'])),
+            securityMore: @json(__('system-status::status.status_security_more', ['count' => ':count'])),
+            securityWatching: @json(__('system-status::status.status_security_watching', ['count' => ':count'])),
+            securityActive: @json(__('system-status::status.status_security_active')),
+            securityEnded: @json(__('system-status::status.status_security_ended')),
+            securityActiveCount: @json(__('system-status::status.status_security_active_count', ['count' => ':count'])),
+            securityIp: @json(__('system-status::status.status_security_label_ip')),
+            securityCountry: @json(__('system-status::status.status_security_label_country')),
+            securityTarget: @json(__('system-status::status.status_security_label_target')),
+            securityRequest: @json(__('system-status::status.status_security_label_request')),
+            securitySameIpNone: @json(__('system-status::status.status_security_same_ip_none')),
+            securityCopyIp: @json(__('system-status::status.status_security_copy_ip')),
+            securityCopied: @json(__('system-status::status.status_security_copied')),
             deployWorse: @json(__('system-status::status.status_deploy_worse', ['components' => ':components'])),
             deployOk: @json(__('system-status::status.status_deploy_ok')),
             incidentsShown: @json(__('system-status::status.status_incidents_shown', ['shown' => ':shown', 'total' => ':total'])),
@@ -430,6 +444,223 @@
             const box = $('sstDeploys');
             box.replaceChildren(fragment);
         }
+
+        /* ---------- suspicious activity: live panel and detail dialog ---------- */
+        // Ids seen by the last render, so a new finding can flash in (none on the first render).
+        let seenSecurity = null;
+        let seenSecurityRange = null;
+
+        function securityItem(event, isNew) {
+            const item = document.createElement('li');
+            item.className = 'sst-deploy sst-security-event' + (isNew ? ' is-new' : '');
+            item.dataset.category = event.category;
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'sst-security-open';
+            button.dataset.securityId = event.id;
+
+            const text = document.createElement('span');
+            text.className = 'sst-deploy-version';
+            const icon = document.createElement('i');
+            icon.className = 'fas ' + event.icon;
+            icon.setAttribute('aria-hidden', 'true');
+            text.append(icon, document.createTextNode(event.text));
+
+            const meta = document.createElement('span');
+            meta.className = 'sst-deploy-meta';
+            meta.textContent = event.at + ' · ' + event.ago;
+
+            const hits = document.createElement('span');
+            hits.className = 'sst-deploy-result';
+            hits.dataset.worse = '1';
+            hits.textContent = fill(i18n.securityHits, {hits: numberFormat.format(event.hits)});
+
+            button.append(text, meta);
+            if (event.active) {
+                const live = document.createElement('span');
+                live.className = 'sst-sec-state';
+                live.dataset.active = '1';
+                live.textContent = i18n.securityActive;
+                button.appendChild(live);
+            }
+            button.appendChild(hits);
+            const chevron = document.createElement('i');
+            chevron.className = 'fas fa-chevron-right sst-security-chevron';
+            chevron.setAttribute('aria-hidden', 'true');
+            button.appendChild(chevron);
+            item.appendChild(button);
+
+            return item;
+        }
+
+        function renderSecurity(security) {
+            const panel = $('sstSecurityPanel');
+            panel.hidden = !security;
+            if (!security) {
+                return;
+            }
+
+            const events = security.events || [];
+            // Another range is a new list, not new findings: nothing flashes.
+            if (seenSecurityRange !== security.range) {
+                seenSecurity = null;
+                seenSecurityRange = security.range;
+            }
+            $('sstSecurityRange').textContent = security.range_label ? '(' + security.range_label + ')' : '';
+            const more = $('sstSecurityMore');
+            more.hidden = security.total <= events.length;
+            more.textContent = fill(i18n.securityMore, {count: numberFormat.format(security.total - events.length)});
+            panel.dataset.state = security.active ? 'alert' : (events.length ? 'warn' : 'calm');
+            $('sstSecurityEmpty').hidden = events.length > 0;
+            $('sstSecurityCount').textContent = [
+                fill(i18n.securityWatching, {count: security.watching}),
+                security.total ? fill(i18n.securityCount, {count: numberFormat.format(security.total)}) : null,
+                security.active ? fill(i18n.securityActiveCount, {count: security.active}) : null,
+            ].filter(Boolean).join(' · ');
+
+            const ids = events.map(function (event) { return event.id; });
+            const fragment = document.createDocumentFragment();
+            events.forEach(function (event, index) {
+                const node = securityItem(event, seenSecurity !== null && seenSecurity.indexOf(event.id) === -1);
+                node.style.setProperty('--sst-i', index);
+                fragment.appendChild(node);
+            });
+            if (seenSecurity !== null && ids.some(function (id) { return seenSecurity.indexOf(id) === -1; })) {
+                panel.classList.remove('is-pinged');
+                void panel.offsetWidth;
+                panel.classList.add('is-pinged');
+            }
+            seenSecurity = ids;
+            $('sstSecurity').replaceChildren(fragment);
+        }
+
+        function securityFact(list, label, value, extra) {
+            if (value == null || value === '') {
+                return;
+            }
+            const term = document.createElement('dt');
+            term.textContent = label;
+            const desc = document.createElement('dd');
+            const text = document.createElement('span');
+            text.textContent = value;
+            desc.appendChild(text);
+            if (extra) {
+                desc.appendChild(extra);
+            }
+            list.append(term, desc);
+        }
+
+        let securityRequest = 0;
+
+        function openSecurity(id) {
+            const request = ++securityRequest;
+            const dialog = $('sstSecurityDialog');
+            const preview = ((state.data && state.data.security && state.data.security.events) || [])
+                .filter(function (event) { return String(event.id) === String(id); })[0];
+
+            dialog.classList.remove('is-loaded');
+            dialog.classList.add('is-loading');
+            $('sstSecIcon').className = 'fas ' + (preview ? preview.icon : 'fa-shield-alt');
+            $('sstSecTitle').textContent = preview ? preview.text : '';
+            $('sstSecLimit').textContent = '';
+            $('sstSecText').textContent = preview ? preview.text : '';
+            $('sstSecState').hidden = true;
+            ['sstSecHits', 'sstSecFirst', 'sstSecLast', 'sstSecDuration'].forEach(function (key) { $(key).textContent = '—'; });
+            $('sstSecFacts').replaceChildren();
+            $('sstSecAdvice').textContent = '';
+            const shimmer = document.createElement('li');
+            shimmer.className = 'sst-deploy';
+            shimmer.innerHTML = '<span class="sst-shimmer" style="inline-size:100%"></span>';
+            $('sstSecSameIp').replaceChildren(shimmer);
+            openDialog(dialog);
+
+            getJson(root.dataset.securityUrl.replace('__event__', encodeURIComponent(id)))
+                .then(function (response) {
+                    if (request !== securityRequest) {
+                        return;
+                    }
+                    const data = response.data;
+                    dialog.dataset.category = data.category;
+                    $('sstSecIcon').className = 'fas ' + data.icon;
+                    $('sstSecTitle').textContent = data.rule_label;
+                    $('sstSecLimit').textContent = data.limit || '';
+                    $('sstSecText').textContent = data.text;
+
+                    const stateNode = $('sstSecState');
+                    stateNode.hidden = false;
+                    stateNode.dataset.active = data.active ? '1' : '0';
+                    stateNode.textContent = data.active ? i18n.securityActive : i18n.securityEnded;
+
+                    countUp($('sstSecHits'), data.hits, function (value) { return numberFormat.format(Math.round(value)); });
+                    $('sstSecFirst').textContent = data.first_seen;
+                    $('sstSecLast').textContent = data.last_seen;
+                    $('sstSecDuration').textContent = data.duration;
+
+                    const facts = $('sstSecFacts');
+                    facts.replaceChildren();
+                    let copy = null;
+                    if (data.ip) {
+                        copy = document.createElement('button');
+                        copy.type = 'button';
+                        copy.className = 'sst-sec-copy';
+                        copy.dataset.copy = data.ip;
+                        copy.setAttribute('aria-label', i18n.securityCopyIp);
+                        copy.title = i18n.securityCopyIp;
+                        copy.innerHTML = '<i class="fas fa-copy" aria-hidden="true"></i>';
+                    }
+                    securityFact(facts, i18n.securityIp, data.ip, copy);
+                    securityFact(facts, i18n.securityCountry, data.country);
+                    securityFact(facts, i18n.securityTarget, data.subject);
+                    const req = data.request || {};
+                    securityFact(facts, i18n.securityRequest, [req.method, req.path, req.status ? '→ ' + req.status : null].filter(Boolean).join(' '));
+                    Object.keys(data.details || {}).forEach(function (key) {
+                        securityFact(facts, key.replace(/_/g, ' '), data.details[key]);
+                    });
+
+                    $('sstSecAdvice').textContent = data.advice;
+
+                    const same = $('sstSecSameIp');
+                    if (data.same_ip.length) {
+                        const fragment = document.createDocumentFragment();
+                        data.same_ip.forEach(function (event) { fragment.appendChild(securityItem(event, false)); });
+                        same.replaceChildren(fragment);
+                    } else {
+                        const empty = document.createElement('li');
+                        empty.className = 'sst-deploy sst-deploy-meta';
+                        empty.textContent = i18n.securitySameIpNone;
+                        same.replaceChildren(empty);
+                    }
+
+                    Array.prototype.forEach.call(dialog.querySelectorAll('.sst-detail-body > *, .sst-kpi'), function (node, index) {
+                        node.style.setProperty('--sst-i', index);
+                    });
+                    dialog.classList.remove('is-loading');
+                    dialog.classList.add('is-loaded');
+                })
+                .catch(function () {
+                    if (request === securityRequest) {
+                        closeDialog(dialog);
+                        toast(i18n.loadFailed, 'error');
+                    }
+                });
+        }
+
+        on('click', '[data-security-id]', function () {
+            openSecurity(this.dataset.securityId);
+        });
+
+        on('click', '.sst-sec-copy', function () {
+            const button = this;
+            const done = function () {
+                button.classList.add('is-copied');
+                toast(i18n.securityCopied, 'ok');
+                setTimeout(function () { button.classList.remove('is-copied'); }, 1200);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(button.dataset.copy).then(done).catch(function () {});
+            }
+        });
 
         function renderHero(data) {
             const level = data.stale ? 'major' : data.overall.level;
@@ -855,6 +1086,7 @@
                     renderGroups(state.data.groups);
                     renderMaintenances(state.data.maintenances || []);
                     renderDeploys(state.data.recent_deploys || []);
+                    renderSecurity(state.data.security);
                     return refreshIncidents(state.data);
                 })
                 .catch(function () {

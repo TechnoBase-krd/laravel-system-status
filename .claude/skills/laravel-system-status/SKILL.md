@@ -24,10 +24,11 @@ namespace `Technobase\SystemStatus`. Public on Packagist (MIT); used by Khatun-E
 | `src/Services/IncidentService.php` | manual incidents, timeline updates, postmortems, `IncidentUpdated` |
 | `src/Services/MaintenanceService.php` | schedules and ends maintenance windows (page and `status:maintenance`) |
 | `src/Services/DeployService.php` | records deploys (`status:deploy`, `POST {path}/deploys`), reads the version from git, compares errors and p95 before/after a deploy |
+| `src/Services/SecurityMonitor.php` | suspicious activity (`security.*`): per-IP request rules, failed / new-country logins (`Listeners\RecordLoginActivity`), signal volume, risky actions (`Support\StatusSecurity::action()`); cache counters, cooldown, `status_security_events`, alerts, `SuspiciousActivityDetected` |
 | `src/Support/` | `StatusRegistry` (config, labels, per-component `threshold()`), `RouteComponentResolver`, `StatusMetrics` (Redis counters), `StatusSignal`, `StatusTimeline` (1h / 24h / 7d), `StatusSql` (driver-specific SQL), `StatusAlerter` (channels, flap protection, folded alerts, webhooks), `LatencyHistogram` (`le_*` buckets, p50 / p95), `StatusDuration` ("1 h 5 min"), `StatusHeartbeat` (last run outcome in a cache store) |
 | `src/Probes/` | `Probe`, `ConcurrentProbe` + `SendsHttpRequest` (one HTTP request, sent in a pool), `ProbeResult` and the generic probes (Spatie, HTTP, queue heartbeat, CDN, Telegram, TLS certificate, disk space, failed jobs, queue size, queue wait, DNS, TCP port, callback) |
 | `src/Actions/` | data for the page (`GetStatusSummaryAction`), the detail popup (`GetStatusComponentAction`) and the monthly SLA report (`GetStatusReportAction`: CSV, HTML, PDF) |
-| `src/Console/` | `status:check`, `status:prune`, `status:routes`, `status:maintenance`, `status:test-alert`, `status:report`, `status:doctor`, `status:deploy` |
+| `src/Console/` | `status:check`, `status:prune`, `status:routes`, `status:maintenance`, `status:test-alert`, `status:report`, `status:doctor`, `status:deploy`, `status:security` |
 | `src/Http/` | controllers (page, management, report), `AuthorizeSystemStatus`, `AuthorizeSystemStatusManagement` (`access.manage_gate`), `RecordRouteHealth`, form requests |
 | `src/Enums/` | `ComponentStatus` (incl. `Maintenance`), `IncidentState` |
 | `src/Events/` | `ComponentStatusChanged` (every confirmed change), `IncidentUpdated`, `MaintenanceStarted`, `MaintenanceEnded` |

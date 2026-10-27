@@ -1,6 +1,6 @@
 ---
 name: system-status
-description: The System Status page provided by the technobase/laravel-system-status package (Super Admin only at /system-status by default) — the component registry in config/system-status.php, how a status is decided (read-only probes, real per-route traffic and p95 latency, StatusSignal for paid or side-effect calls, manual incidents), status:check with two-in-a-row confirmation, maintenance windows, deploy markers (status:deploy), incidents with timelines and postmortems, alert channels (Telegram, mail, Slack, Discord, webhooks), depends_on, SLA targets and monthly reports, the ComponentStatusChanged / IncidentUpdated / Maintenance* events, the status_* tables, status:doctor, the 1h / 24h / 7d / 90d history, translations and customisation. Use when adding a module, route group or integration, adding or changing a component, probe, route rule, signal, threshold, dependency, SLA or alert, when writing a deploy script or CI step, when a component shows an unexpected status, or when touching the status page.
+description: The System Status page provided by the technobase/laravel-system-status package (Super Admin only at /system-status by default) — the component registry in config/system-status.php, how a status is decided (read-only probes, real per-route traffic and p95 latency, StatusSignal for paid or side-effect calls, manual incidents), status:check with two-in-a-row confirmation, maintenance windows, deploy markers (status:deploy), suspicious activity (security.*, StatusSecurity::action, status:security), incidents with timelines and postmortems, alert channels (Telegram, mail, Slack, Discord, webhooks), depends_on, SLA targets and monthly reports, the ComponentStatusChanged / IncidentUpdated / Maintenance* events, the status_* tables, status:doctor, the 1h / 24h / 7d / 90d history, translations and customisation. Use when adding a module, route group or integration, adding or changing a component, probe, route rule, signal, threshold, dependency, SLA or alert, when writing a deploy script or CI step, when a component shows an unexpected status, or when touching the status page.
 ---
 
 # System Status (technobase/laravel-system-status)
@@ -21,8 +21,9 @@ checks never create data or cost money, and a status only changes when it is rea
 | Components, thresholds, alerts, SLA, reports, access, layout | `config/system-status.php` |
 | The application's own probes | a folder of the application (e.g. `app/Probes` or a module's `Probes`) |
 | Labels for the application's components | `lang/vendor/system-status/<locale>/status.php` |
-| Reactions to status changes | listeners of `ComponentStatusChanged`, `IncidentUpdated`, `MaintenanceStarted`, `MaintenanceEnded`, `DeployRecorded` (all in `Technobase\SystemStatus\Events`) |
-| Alert credentials | `.env`: `SYSTEM_STATUS_TELEGRAM_CHAT_ID`, `SYSTEM_STATUS_ALERT_MAIL_TO`, `SYSTEM_STATUS_SLACK_WEBHOOK`, `SYSTEM_STATUS_DISCORD_WEBHOOK`, `SYSTEM_STATUS_REMINDER_MINUTES`, `SYSTEM_STATUS_REPORT_MAIL_TO`, `SYSTEM_STATUS_DEPLOY_TOKEN` |
+| Reactions to status changes | listeners of `ComponentStatusChanged`, `IncidentUpdated`, `MaintenanceStarted`, `MaintenanceEnded`, `DeployRecorded`, `SuspiciousActivityDetected` (all in `Technobase\SystemStatus\Events`) |
+| Risky actions to watch | `StatusSecurity::action('roles.changed', $user)` in the application's code, rules in `security.actions` |
+| Alert credentials | `.env`: `SYSTEM_STATUS_TELEGRAM_CHAT_ID`, `SYSTEM_STATUS_ALERT_MAIL_TO`, `SYSTEM_STATUS_SLACK_WEBHOOK`, `SYSTEM_STATUS_DISCORD_WEBHOOK`, `SYSTEM_STATUS_REMINDER_MINUTES`, `SYSTEM_STATUS_REPORT_MAIL_TO`, `SYSTEM_STATUS_DEPLOY_TOKEN`, `SYSTEM_STATUS_SECURITY_ENABLED` |
 
 ## How a status is decided
 
@@ -171,6 +172,18 @@ cannot be resolved by hand. Limit who may post with `access.manage_gate` (a Gate
 
 Webhook receivers verify `X-System-Status-Signature` = `'sha256='.hash_hmac('sha256', $rawBody, $secret)`
 with `hash_equals()`. Check every channel with `php artisan status:test-alert`.
+
+**Suspicious activity** (`security.*`, off by default): per-IP request rules (`requests`:
+`statuses` and/or `paths`, `max` within `minutes`), failed logins and new-country / new-IP
+logins (from Laravel's auth events; passwords are never read), signal volume per component
+(`signals.otp` => `max`, `max_per_ip`, `minutes`) and risky actions
+(`Technobase\SystemStatus\Support\StatusSecurity::action('export')`; `actions.<name>` =>
+`alert` or `max` + `minutes`; `quiet_hours`). Findings go to `status_security_events`, the page's
+*Suspicious activity* panel, `php artisan status:security`, the alert channels and
+`SuspiciousActivityDetected`. Behind a proxy, set trusted proxies so `$request->ip()` is real.
+Add the server's own IPs and the office to `ignore_ips`. `SecurityConfigProbe` (and
+`status:doctor`) flag `APP_DEBUG` in production, an empty `APP_KEY`, a readable `.env` and
+pending migrations.
 
 **Reacting in code**: when matching on `ComponentStatus`, handle `Maintenance` too (or add a
 `default` arm).

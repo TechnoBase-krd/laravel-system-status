@@ -19,6 +19,9 @@ Route::middleware([EnsureSystemStatusEnabled::class, ...(array) config('system-s
             ->where('component', '[a-z_]+')
             ->name('system_status.component');
         Route::get($path.'/incidents', [SystemStatusController::class, 'incidents'])->name('system_status.incidents.index');
+        Route::get($path.'/security/{event}', [SystemStatusController::class, 'security'])
+            ->whereNumber('event')
+            ->name('system_status.security.show');
         Route::get($path.'/reports/{month}.{format}', [StatusReportController::class, 'show'])
             ->where(['month' => '\d{4}-\d{2}', 'format' => 'html|csv|pdf'])
             ->name('system_status.report');

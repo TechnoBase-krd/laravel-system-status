@@ -38,6 +38,12 @@ class PruneStatusCommand extends Command
             'status_deploys' => Schema::hasTable('status_deploys')
                 ? DB::table('status_deploys')->where('deployed_at', '<', now()->subDays($days['incidents']))->delete()
                 : 0,
+            'status_security_events' => Schema::hasTable('status_security_events')
+                ? DB::table('status_security_events')->where('last_seen_at', '<', now()->subDays($days['security'] ?? 90))->delete()
+                : 0,
+            'status_security_logins' => Schema::hasTable('status_security_logins')
+                ? DB::table('status_security_logins')->where('last_seen_at', '<', now()->subDays($days['security'] ?? 90))->delete()
+                : 0,
         ];
 
         foreach ($deleted as $table => $count) {

@@ -20,6 +20,7 @@
     <div class="content sst" id="sst"
          data-summary-url="{{ route('system_status.summary') }}"
          data-component-url="{{ route('system_status.component', ['component' => '__component__']) }}"
+         data-security-url="{{ route('system_status.security.show', ['event' => '__event__']) }}"
          data-incidents-url="{{ route('system_status.incidents.index') }}"
          data-can-manage="{{ $canManage ? '1' : '0' }}"
          @if($canManage)
@@ -132,6 +133,31 @@
             </header>
             <div class="sst-panel-body tw:py-1">
                 <ul class="sst-deploys" id="sstDeploys"></ul>
+            </div>
+        </section>
+
+        {{-- Suspicious activity within the selected range: shown, with a live badge, while security.enabled is on --}}
+        <section class="sst-panel sst-security-panel tw:mb-6" id="sstSecurityPanel" data-state="calm" hidden>
+            <span class="sst-security-scan" aria-hidden="true"></span>
+            <header class="sst-panel-head">
+                <h3 class="sst-panel-title">
+                    <span class="sst-security-shield" aria-hidden="true"><i class="fas fa-user-shield"></i></span>
+                    @lang('system-status::status.status_security_title')
+                    <span class="sst-security-range" id="sstSecurityRange"></span>
+                </h3>
+                <span class="sst-live" title="{{ __('system-status::status.status_security_live') }}">
+                    <span class="sst-live-dot" aria-hidden="true"></span>
+                    @lang('system-status::status.status_security_live')
+                </span>
+                <span class="sst-security-count" id="sstSecurityCount"></span>
+            </header>
+            <div class="sst-panel-body tw:py-1">
+                <p class="sst-security-empty" id="sstSecurityEmpty" hidden>
+                    <i class="fas fa-check-circle" aria-hidden="true"></i>
+                    @lang('system-status::status.status_security_empty')
+                </p>
+                <ul class="sst-deploys" id="sstSecurity"></ul>
+                <p class="sst-security-more" id="sstSecurityMore" hidden></p>
             </div>
         </section>
 
@@ -249,6 +275,7 @@
 
 @push(config('system-status.stacks.modals', 'modals'))
     @include('system-status::partials.detail')
+    @include('system-status::partials.security')
     @if($canManage)
         @include('system-status::partials.panels')
     @endif

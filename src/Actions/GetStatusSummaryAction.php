@@ -8,10 +8,12 @@ use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Models\StatusDeploy;
 use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
+use Technobase\SystemStatus\Models\StatusSecurityEvent;
 use Technobase\SystemStatus\Services\StatusService;
 use Technobase\SystemStatus\Support\StatusHeartbeat;
 use Technobase\SystemStatus\Support\StatusRegistry;
 use Technobase\SystemStatus\Support\StatusTimeline;
+use Throwable;
 
 /**
  * Everything the System Status page shows: the overall banner, each component with its
@@ -150,6 +152,8 @@ class GetStatusSummaryAction
                 ->map(fn (StatusDeploy $deploy) => $this->deployRow($deploy, $rangeStart, $rangeEnd))
                 ->all(),
             'recent_deploys' => $recentDeploys->map(fn (StatusDeploy $deploy) => $this->deployRow($deploy))->all(),
+            // Suspicious activity of the last 24 hours (security.enabled), newest first.
+            'security' => $this->security($range),
             'report_url' => route('system_status.report', ['month' => now()->format('Y-m'), 'format' => 'html']),
         ];
     }
@@ -295,6 +299,62 @@ class GetStatusSummaryAction
             'active' => $maintenance->isActive(),
             'created_by' => $maintenance->created_by,
         ];
+    }
+
+    /**
+     * Findings seen within the range (1h, 24h, 7d, 90d), or null while security monitoring is
+     * off. While it is on, the panel always shows (with a "Live" badge), also with nothing to report.
+     *
+     * @return array{range: string, range_label: string, total: int, active: int, watching: int, events: array<int, array<string, mixed>>}|null
+     */
+    public function security(string $range = '24h'): ?array
+    {
+        if (! config('system-status.enabled', true) || ! config('system-status.security.enabled', false)) {
+            return null;
+        }
+
+        try {
+            $range = in_array($range, self::RANGES, true) ? $range : '24h';
+            $since = match ($range) {
+                '1h' => now()->subHour(),
+                '7d' => now()->subDays(7),
+                '90d' => now()->subDays(90),
+                default => now()->subDay(),
+            };
+            $query = StatusSecurityEvent::query()->where('last_seen_at', '>=', $since);
+            $rows = app(GetSecurityEventAction::class);
+            $events = (clone $query)->latest('last_seen_at')->latest('id')->limit(10)->get();
+
+            return [
+                'range' => $range,
+                'range_label' => __('system-status::status.status_security_range_'.$range),
+                'total' => (clone $query)->count(),
+                'active' => $events->filter(fn (StatusSecurityEvent $event) => $rows->active($event))->count(),
+                'watching' => $this->securityRules(),
+                'events' => $events->map(fn (StatusSecurityEvent $event) => $rows->row($event))->all(),
+            ];
+        } catch (Throwable) {
+            // Table not migrated yet.
+            return null;
+        }
+    }
+
+    /**
+     * How many rules are watching: request rules, login checks, signal limits, action rules.
+     */
+    private function securityRules(): int
+    {
+        $security = (array) config('system-status.security', []);
+        $logins = (array) ($security['logins'] ?? []);
+        $active = fn ($rule) => is_array($rule) && (int) ($rule['max'] ?? 0) > 0;
+
+        return count(array_filter((array) ($security['requests'] ?? []), $active))
+            + count(array_filter([$logins['failed'] ?? null, $logins['failed_per_account'] ?? null], $active))
+            + (int) (($logins['new_country'] ?? true) && filled($logins['country_header'] ?? 'CF-IPCountry'))
+            + (int) (bool) ($logins['new_ip'] ?? false)
+            + count(array_filter((array) ($security['signals'] ?? []), 'is_array'))
+            + count(array_filter((array) ($security['actions'] ?? []), 'is_array'))
+            + (int) is_array($security['quiet_hours'] ?? null);
     }
 
     /**
