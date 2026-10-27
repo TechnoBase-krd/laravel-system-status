@@ -2,8 +2,11 @@
 
 namespace Technobase\SystemStatus\Actions;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Lang;
+use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatusManagement;
 use Technobase\SystemStatus\Models\StatusSecurityEvent;
+use Technobase\SystemStatus\Services\SecurityBlocker;
 
 /**
  * One suspicious activity finding for the page's detail dialog: what happened, the rule, the
@@ -23,7 +26,8 @@ class GetSecurityEventAction
             ->limit(10)
             ->get();
 
-        $details = collect((array) $event->details)->except(['demo'])->all();
+        $details = collect((array) $event->details)->except(['demo', 'blocked_until'])->all();
+        $block = $event->ip !== null ? app(SecurityBlocker::class)->find($event->ip) : null;
 
         return [
             ...$this->row($event),
@@ -46,6 +50,8 @@ class GetSecurityEventAction
                 ->all(),
             'same_ip' => $sameIp->map(fn (StatusSecurityEvent $other) => $this->row($other))->all(),
             'advice' => $this->advice($event),
+            'blocked_until' => $block ? Carbon::parse($block->blocked_until)->format('Y-m-d H:i') : null,
+            'can_unblock' => $block !== null && AuthorizeSystemStatusManagement::allows(request()->user()),
         ];
     }
 
@@ -58,8 +64,10 @@ class GetSecurityEventAction
             'id' => $event->id,
             'category' => $event->category,
             'type' => $event->type,
+            'severity' => $event->severity,
             'rule' => $event->rule,
             'icon' => $event->icon(),
+            'blocked' => isset($event->details['blocked_until']),
             'text' => $event->describe(),
             'ip' => $event->ip,
             'hits' => $event->hits,
@@ -81,6 +89,10 @@ class GetSecurityEventAction
     {
         $key = 'system-status::status.status_security_rule_'.$event->type;
 
+        if (! Lang::has($key, null, false) && str_ends_with($event->type, '_critical')) {
+            $key = 'system-status::status.status_security_rule_critical';
+        }
+
         return Lang::has($key, null, false)
             ? __($key, ['rule' => (string) $event->rule])
             : str_replace('_', ' ', ucfirst((string) ($event->rule ?? $event->type)));
@@ -89,6 +101,10 @@ class GetSecurityEventAction
     private function advice(StatusSecurityEvent $event): string
     {
         $key = 'system-status::status.status_security_advice_'.$event->type;
+
+        if (! Lang::has($key, null, false) && str_ends_with($event->type, '_critical')) {
+            $key = 'system-status::status.status_security_advice_critical';
+        }
 
         if (! Lang::has($key, null, false)) {
             $key = 'system-status::status.status_security_advice_'.$event->category;

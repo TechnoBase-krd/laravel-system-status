@@ -3,12 +3,14 @@
 namespace Technobase\SystemStatus\Actions;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Technobase\SystemStatus\Enums\ComponentStatus;
 use Technobase\SystemStatus\Models\StatusComponent;
 use Technobase\SystemStatus\Models\StatusDeploy;
 use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Models\StatusSecurityEvent;
+use Technobase\SystemStatus\Services\SecurityBlocker;
 use Technobase\SystemStatus\Services\StatusService;
 use Technobase\SystemStatus\Support\StatusHeartbeat;
 use Technobase\SystemStatus\Support\StatusRegistry;
@@ -330,6 +332,10 @@ class GetStatusSummaryAction
                 'range_label' => __('system-status::status.status_security_range_'.$range),
                 'total' => (clone $query)->count(),
                 'active' => $events->filter(fn (StatusSecurityEvent $event) => $rows->active($event))->count(),
+                'critical' => (clone $query)->where('severity', StatusSecurityEvent::SEVERITY_CRITICAL)->count(),
+                'blocked' => app(SecurityBlocker::class)->enabled()
+                    ? DB::table('status_security_blocks')->where('blocked_until', '>', now())->count()
+                    : null,
                 'watching' => $this->securityRules(),
                 'events' => $events->map(fn (StatusSecurityEvent $event) => $rows->row($event))->all(),
             ];

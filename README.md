@@ -754,6 +754,111 @@ readable `.env`, and degraded for pending migrations. With `checkEnvFile`, keep 
 more so its own `.env` request does not trip the `scanner` rule (or add the server to
 `ignore_ips`).
 
+In production, `status:doctor` also warns about `APP_URL` without https, a missing HSTS header,
+`SESSION_SECURE_COOKIE` off, `session.http_only` off, CORS open to `*` (a failure together with
+`supports_credentials`), Debugbar on and Telescope on.
+
+### Critical findings
+
+Some findings mean the attack may have **worked**, or that nobody but an attacker could have
+done it. They are marked *Critical* (red on the page, `🚨 CRITICAL — possible breach` in the
+alert) and are reported on the first hit:
+
+| Finding | When |
+| --- | --- |
+| Scanned file served | a `scanner` path answered 2xx with something other than an HTML page (`requests.scanner.critical`): a secret file or tool may be public. HTML is skipped because a catch-all route answers every path with the app's own page. |
+| Attack payload broke the app | an `injection` payload made the app answer 500 (`requests.injection.critical`): the input may reach a query or a command unchecked |
+| Honeypot path, honeypot field, canary secret | see below |
+| Impossible travel | a user signs in from another country within `logins.impossible_travel_minutes` (120) of a login from a different one |
+| Session used from another country | a signed-in session is suddenly used from another country (`logins.session_country_change`): a stolen session cookie |
+
+Any request rule can have its own `'critical' => ['statuses' => [...], 'not_html' => true]`.
+
+### Auto-block
+
+Off by default. `SYSTEM_STATUS_SECURITY_BLOCK=true` answers 403 to an IP for `block.minutes`
+(60) after a finding of one of `block.types` (scanner, injection, attack tools, honeypots,
+canaries) or any critical finding. The check is a middleware that runs before sessions, auth and
+the database, so a blocked request costs one cache read.
+
+```php
+'block' => [
+    'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_BLOCK', false),
+    'minutes' => 60,
+    'types' => ['scanner', 'injection', 'scanner_tools', 'honeypot', 'honeypot_field', 'canary'],
+    'critical' => true,
+    'cloudflare' => [
+        'token' => env('SYSTEM_STATUS_CLOUDFLARE_TOKEN'),     // Zone > Firewall Services > Edit
+        'zone_id' => env('SYSTEM_STATUS_CLOUDFLARE_ZONE_ID'),
+    ],
+],
+```
+
+With a Cloudflare token and zone id, the IP is also blocked at Cloudflare (an IP access rule),
+so its requests never reach the server; the rule is removed when the block ends
+(`status:security --expire`, scheduled every 5 minutes). Unblock with the **Unblock** button in a
+finding's dialog (managers) or `php artisan status:security --unblock=203.0.113.9`; list blocks
+with `--blocked`.
+
+To keep a misconfiguration from locking everyone out, these are never blocked: `ignore_ips`,
+loopback and private addresses (a proxy or load balancer, when trusted proxies are not set), and
+an address that Cloudflare's `CF-Connecting-IP` header shows is not the client.
+
+### Honeypots
+
+Traps nobody but an attacker touches; one hit is a critical finding (and a block).
+
+```php
+'honeypot' => [
+    'paths' => ['/old-admin*'],              // e.g. listed as Disallow in robots.txt, linked nowhere
+    'field' => 'website_url',                 // <x-system-status::honeypot /> inside a form
+    'canaries' => ['sk_live_51Hx…fake'],      // a fake key in an HTML comment or a decoy file
+],
+```
+
+`<x-system-status::honeypot />` renders a field people never see; a bot that fills every field
+fills it too. A **canary** is a fake secret you leave where only someone digging through your
+pages or files would find it: any request that carries it in its URL, headers or body is someone
+using what they found. Only its first characters are stored.
+
+### Many records, many IPs
+
+- **Reading many records** (`records`): one signed-in user opening more than 200 different URLs
+  of the same route (`orders/1`, `orders/2`, …) within 10 minutes. Catches scraping and IDOR
+  (changing the id in a URL to read other people's data). Skip routes with `ignore_routes`.
+- **Attacks from many IPs** (`max_total` on a request rule or `logins.failed`): the same rule
+  summed over all IPs, for botnets that stay under the per-IP limit. The finding says how many IPs
+  took part.
+
+### New API tokens and role changes
+
+With `watch_changes`, a new Laravel Sanctum token and a role or permission given or taken
+(spatie/laravel-permission with `permission.events_enabled`) are reported as risky actions, with
+who did it.
+
+### Web shells, changed code and vulnerable packages
+
+Three probes for a `security` group:
+
+```php
+use Technobase\SystemStatus\Probes\{ComposerAuditProbe, SecurityFilesProbe, WebShellProbe};
+
+'security' => [
+    'web_shells' => ['probes' => [['class' => WebShellProbe::class, 'every' => 30]]],
+    'code_files' => ['probes' => [['class' => SecurityFilesProbe::class, 'every' => 15]]],
+    'packages' => ['probes' => [['class' => ComposerAuditProbe::class, 'every' => 720]]],
+],
+```
+
+| Probe | Options (`with`) | Checks |
+| --- | --- | --- |
+| `WebShellProbe` | `paths` (`public`, `storage/app/public`), `allow` (`public/index.php`), `extensions`, `maxFiles` (20 000) | PHP and other executable files where only assets and uploads belong, and uploads whose first bytes are PHP (an image with a shell inside): *major outage* |
+| `SecurityFilesProbe` | – | code files (`security.files`) added or changed since the last `status:deploy`: *major outage*; removed: *degraded*. The baseline is saved by every deploy (`files.baseline_on_deploy`) or `php artisan status:security --baseline`. |
+| `ComposerAuditProbe` | `binary` (`composer`), `timeoutSeconds` (60) | `composer audit --locked`: a high or critical advisory is a *major outage*, others *degraded*; skipped without composer |
+
+Run `status:deploy` (or `--baseline`) after the files of a deploy are in place, on each server
+that serves the app.
+
 ---
 
 ## Incidents
@@ -1136,7 +1241,7 @@ return [
 | `status:test-alert` | by hand | sends a test alert to each channel and shows the result (`--channel=`, `--webhooks`, `--force`) |
 | `status:doctor` | by hand | checks the setup and dangerous settings, one line per check (`--no-http`) |
 | `status:deploy` | deploy scripts | records a deploy (`release`, `--commit=`, `--note=`, `--by=`, `--at=`, `--list`) |
-| `status:security` | by hand | lists suspicious activity (`--hours=24`, `--type=`, `--ip=`, `--limit=50`) |
+| `status:security` | by hand; `--expire` every 5 minutes with auto-block | lists suspicious activity (`--hours=24`, `--type=`, `--ip=`, `--limit=50`), blocked IPs (`--blocked`, `--unblock=<ip>`, `--expire`) and saves the code file baseline (`--baseline`) |
 
 Set `schedule` to `false` to schedule them yourself.
 
@@ -1157,6 +1262,7 @@ Set `schedule` to `false` to schedule them yourself.
 | `status_deploys` | deploys: version, commit, note, who, when, and the before/after comparison | 90 days |
 | `status_security_events` | suspicious activity findings: rule, IP, subject, country, hits, when | 90 days (`retention_days.security`) |
 | `status_security_logins` | the IPs and countries each watched user signed in from | 90 days after the last login |
+| `status_security_blocks` | blocked IPs: until when, why, the Cloudflare rule | a day after the block ends |
 
 The migrations create tables and columns only when they do not exist yet, so they are safe on a
 database that already has them.

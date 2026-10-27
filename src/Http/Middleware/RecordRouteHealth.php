@@ -33,7 +33,7 @@ class RecordRouteHealth
     public function terminate(Request $request, Response $response): void
     {
         // Before the route check: scanners mostly hit URLs without a route.
-        $this->security->request($request, $response->getStatusCode());
+        $this->security->request($request, $response->getStatusCode(), $response->headers->get('Content-Type'));
 
         if (! config('system-status.record_traffic', true)) {
             return;

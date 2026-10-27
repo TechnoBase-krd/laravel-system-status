@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Lang;
  *
  * @property string $category request, login, signal or action
  * @property string $type
+ * @property string $severity warning or critical
  * @property ?string $rule
  * @property ?string $ip
  * @property ?string $subject
@@ -33,9 +34,18 @@ class StatusSecurityEvent extends Model
 
     public const CATEGORY_ACTION = 'action';
 
+    public const SEVERITY_WARNING = 'warning';
+
+    /** The attack may have worked, or nobody but an attacker could have done it. */
+    public const SEVERITY_CRITICAL = 'critical';
+
     protected $fillable = [
-        'category', 'type', 'rule', 'ip', 'subject', 'country', 'hits', 'window_minutes', 'max',
+        'category', 'type', 'severity', 'rule', 'ip', 'subject', 'country', 'hits', 'window_minutes', 'max',
         'details', 'detected_at', 'last_seen_at',
+    ];
+
+    protected $attributes = [
+        'severity' => self::SEVERITY_WARNING,
     ];
 
     protected $casts = [
@@ -56,12 +66,17 @@ class StatusSecurityEvent extends Model
         $key = 'system-status::status.status_security_'.$this->type;
 
         if (! Lang::has($key, $locale, false)) {
-            $key = 'system-status::status.status_security_'.$this->category;
+            $key = 'system-status::status.status_security_'.(str_ends_with($this->type, '_critical') ? 'critical' : $this->category);
         }
 
+        $details = array_filter((array) $this->details, fn ($value) => is_scalar($value));
+
         return __($key, [
+            ...$details,
+            'status' => (string) ($details['status'] ?? ''),
+            'ips' => (string) ($details['ips'] ?? ''),
             'hits' => number_format($this->hits),
-            'minutes' => (string) ($this->window_minutes ?? ''),
+            'minutes' => (string) ($this->window_minutes ?? $details['minutes'] ?? ''),
             'max' => (string) ($this->max ?? ''),
             'ip' => (string) ($this->ip ?? '?'),
             'subject' => (string) ($this->subject ?? '?'),
@@ -73,7 +88,28 @@ class StatusSecurityEvent extends Model
     /**
      * Font Awesome icon for the page.
      */
+    public function isCritical(): bool
+    {
+        return $this->severity === self::SEVERITY_CRITICAL;
+    }
+
     public function icon(): string
+    {
+        if ($this->rule === 'token.created') {
+            return 'fa-key';
+        }
+
+        return match ($this->type) {
+            'scanner_critical', 'injection_critical' => 'fa-skull-crossbones',
+            'honeypot', 'honeypot_field', 'canary' => 'fa-spider',
+            'impossible_travel', 'session_country_change' => 'fa-plane-departure',
+            'record_access' => 'fa-database',
+            'distributed' => 'fa-network-wired',
+            default => $this->categoryIcon(),
+        };
+    }
+
+    private function categoryIcon(): string
     {
         return match ($this->category) {
             self::CATEGORY_LOGIN => 'fa-user-lock',

@@ -21,6 +21,18 @@
   summary's `security` field (null while off). `status:doctor` also reports `APP_DEBUG` on in
   production, an empty `APP_KEY`, pending migrations and a `.env` readable over HTTP
   (`--no-http` skips the request). With the option off, nothing changes.
+- Suspicious activity, hardening: **auto-block** (`security.block`, `SYSTEM_STATUS_SECURITY_BLOCK`,
+  off by default): 403 for IPs with a serious or critical finding, optionally also as a Cloudflare
+  IP access rule, never for private, loopback or proxy addresses; unblock from the page or
+  `status:security --unblock=`. **Critical findings** when an attack may have worked (a scanned
+  file served, a payload causing a 500), honeypot paths, a honeypot form field
+  (`<x-system-status::honeypot />`) and canary secrets, impossible travel and a session used from
+  another country. **Botnet totals** (`max_total`), **record reading / IDOR** (`records`), new
+  Sanctum tokens and role changes (`watch_changes`). New probes `WebShellProbe`,
+  `SecurityFilesProbe` (code changed since the last deploy; `status:deploy` saves the baseline)
+  and `ComposerAuditProbe`. `status:doctor` adds HTTPS, HSTS, secure / http-only cookies, CORS,
+  Debugbar and Telescope checks. New `status_security_blocks` table and `severity` column (run
+  `php artisan migrate`), `system_status.security.unblock` route.
 - `enabled` (`SYSTEM_STATUS_ENABLED`, default `true`) turns the whole package off: no traffic
   counting, signals, schedule, `status:check` runs or alerts, and the page, its endpoints and
   `POST {path}/deploys` answer 404. Route names stay registered, so menu links keep working;

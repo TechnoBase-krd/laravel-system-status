@@ -6,11 +6,13 @@ use Closure;
 use Illuminate\Console\Command;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Schema;
 use NotificationChannels\Telegram\TelegramMessage;
 use Technobase\SystemStatus\Models\StatusComponent;
+use Technobase\SystemStatus\Probes\HttpEndpointProbe;
 use Technobase\SystemStatus\Probes\Probe;
 use Technobase\SystemStatus\Probes\SecurityConfigProbe;
 use Technobase\SystemStatus\Support\RouteComponentResolver;
@@ -73,7 +75,8 @@ class DoctorCommand extends Command
             'status_maintenances' => [],
             'status_monthly' => [],
             'status_deploys' => [],
-            'status_security_events' => [],
+            'status_security_events' => ['severity'],
+            'status_security_blocks' => [],
             'status_security_logins' => [],
         ];
 
@@ -314,6 +317,13 @@ class DoctorCommand extends Command
         } else {
             $this->reportOk('Suspicious activity', "On, counters in the \"{$store}\" cache. Behind a proxy, check that trusted proxies are set so request IPs are real.");
         }
+
+        $block = (array) config('system-status.security.block', []);
+        if (! ($block['enabled'] ?? false)) {
+            $this->reportWarn('Auto-block', 'Off: attackers are reported but not stopped. SYSTEM_STATUS_SECURITY_BLOCK=true blocks them.');
+        } else {
+            $this->reportOk('Auto-block', 'On for '.(int) ($block['minutes'] ?? 60).' min'.(filled($block['cloudflare']['token'] ?? null) && filled($block['cloudflare']['zone_id'] ?? null) ? ', also at Cloudflare.' : ' (local only; add a Cloudflare token to block at the edge).'));
+        }
     }
 
     private function dangerousSettings(): void
@@ -333,6 +343,55 @@ class DoctorCommand extends Command
 
         if (! $this->option('no-http') && app()->environment('production') && ($url = SecurityConfigProbe::envFileExposed())) {
             $this->reportFail('.env file', "Readable at {$url}: every secret of the application is public. Point the web server at public/.");
+        }
+
+        if (! app()->environment('production')) {
+            return;
+        }
+
+        if (! str_starts_with((string) config('app.url'), 'https://')) {
+            $this->reportWarn('HTTPS', 'APP_URL is not https://: passwords and session cookies can be read on the way.');
+        } elseif (! $this->option('no-http')) {
+            $this->hsts();
+        }
+
+        if (! config('session.secure')) {
+            $this->reportWarn('Session cookie', 'SESSION_SECURE_COOKIE is off: the session cookie is also sent over plain http.');
+        }
+
+        if (config('session.http_only', true) === false) {
+            $this->reportFail('Session cookie', 'session.http_only is off: any injected script can steal sessions.');
+        }
+
+        $origins = (array) config('cors.allowed_origins', []);
+        if (in_array('*', $origins, true)) {
+            config('cors.supports_credentials')
+                ? $this->reportFail('CORS', 'allowed_origins is * with supports_credentials: any website can call the API as the signed-in user.')
+                : $this->reportWarn('CORS', 'allowed_origins is *: any website can call the API from a browser.');
+        }
+
+        if (class_exists('Barryvdh\\Debugbar\\ServiceProvider') && config('debugbar.enabled')) {
+            $this->reportFail('Debugbar', 'On in production: it shows queries, sessions and request data.');
+        }
+
+        if (class_exists('Laravel\\Telescope\\Telescope') && config('telescope.enabled')) {
+            $this->reportWarn('Telescope', 'On in production: check that its gate (viewTelescope) only lets admins in.');
+        }
+    }
+
+    private function hsts(): void
+    {
+        try {
+            $response = Http::timeout(5)
+                ->withOptions(['allow_redirects' => false, 'verify' => (bool) config('system-status.probe_verify_ssl', true)])
+                ->withHeaders([HttpEndpointProbe::HEADER => '1'])
+                ->get(rtrim((string) config('app.url'), '/').'/');
+
+            if (! $response->header('Strict-Transport-Security')) {
+                $this->reportWarn('HSTS', 'No Strict-Transport-Security header: browsers may still try plain http first. Add it in the web server or Cloudflare.');
+            }
+        } catch (Throwable) {
+            // The site is not reachable from here; the HTTP probes report that.
         }
     }
 

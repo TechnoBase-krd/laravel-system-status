@@ -41,6 +41,9 @@ class PruneStatusCommand extends Command
             'status_security_events' => Schema::hasTable('status_security_events')
                 ? DB::table('status_security_events')->where('last_seen_at', '<', now()->subDays($days['security'] ?? 90))->delete()
                 : 0,
+            'status_security_blocks' => Schema::hasTable('status_security_blocks')
+                ? DB::table('status_security_blocks')->where('blocked_until', '<', now()->subDay())->delete()
+                : 0,
             'status_security_logins' => Schema::hasTable('status_security_logins')
                 ? DB::table('status_security_logins')->where('last_seen_at', '<', now()->subDays($days['security'] ?? 90))->delete()
                 : 0,

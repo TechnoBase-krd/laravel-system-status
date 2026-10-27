@@ -22,8 +22,10 @@ use Technobase\SystemStatus\Console\ReportCommand;
 use Technobase\SystemStatus\Console\RunStatusChecksCommand;
 use Technobase\SystemStatus\Console\SecurityCommand;
 use Technobase\SystemStatus\Console\TestAlertCommand;
+use Technobase\SystemStatus\Http\Middleware\BlockSuspiciousIps;
 use Technobase\SystemStatus\Http\Middleware\RecordRouteHealth;
 use Technobase\SystemStatus\Listeners\RecordLoginActivity;
+use Technobase\SystemStatus\Listeners\RecordSecurityChanges;
 use Technobase\SystemStatus\Support\StatusAlerter;
 use Throwable;
 
@@ -53,6 +55,25 @@ class SystemStatusServiceProvider extends ServiceProvider
             // Counts requests and 5xx per component after the response is sent, and passes them
             // to the suspicious activity monitor.
             $this->app->make(Kernel::class)->pushMiddleware(RecordRouteHealth::class);
+        }
+
+        if ($security && config('system-status.security.block.enabled', false) && $this->app->bound(Kernel::class)) {
+            // Blocked IPs get 403 before sessions, auth and the database (security.block).
+            $this->app->make(Kernel::class)->prependMiddleware(BlockSuspiciousIps::class);
+        }
+
+        if ($security) {
+            $watch = (array) config('system-status.security.watch_changes', []);
+
+            if ($watch['tokens'] ?? true) {
+                Events::listen('eloquent.created: Laravel\\Sanctum\\PersonalAccessToken', [RecordSecurityChanges::class, 'tokenCreated']);
+            }
+
+            if ($watch['roles'] ?? true) {
+                foreach (['RoleAttached', 'RoleDetached', 'PermissionAttached', 'PermissionDetached'] as $name) {
+                    Events::listen('Spatie\\Permission\\Events\\'.$name, [RecordSecurityChanges::class, 'roleChanged']);
+                }
+            }
         }
 
         if ($enabled) {
@@ -103,6 +124,11 @@ class SystemStatusServiceProvider extends ServiceProvider
                 // The overlap lock expires after 5 minutes so a killed run cannot stop the checks.
                 $this->onOneServer($schedule->command('status:check')->everyMinute()->withoutOverlapping(5)->runInBackground());
                 $this->onOneServer($schedule->command('status:prune')->dailyAt('03:30')->withoutOverlapping());
+
+                if (config('system-status.security.enabled', false) && config('system-status.security.block.enabled', false)) {
+                    // Ends expired blocks and removes their Cloudflare rules.
+                    $this->onOneServer($schedule->command('status:security --expire')->everyFiveMinutes()->withoutOverlapping());
+                }
 
                 if (array_filter((array) config('system-status.reports.mail_to', []))) {
                     $this->onOneServer($schedule->command('status:report --previous --send')->monthlyOn(1, '08:00'));

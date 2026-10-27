@@ -183,7 +183,12 @@ logins (from Laravel's auth events; passwords are never read), signal volume per
 `SuspiciousActivityDetected`. Behind a proxy, set trusted proxies so `$request->ip()` is real.
 Add the server's own IPs and the office to `ignore_ips`. `SecurityConfigProbe` (and
 `status:doctor`) flag `APP_DEBUG` in production, an empty `APP_KEY`, a readable `.env` and
-pending migrations.
+pending migrations. Auto-block (`security.block`, also Cloudflare) answers 403 to IPs with a
+serious or critical finding; critical = a scanned file served, a payload causing a 500,
+honeypots (`honeypot.paths`, `<x-system-status::honeypot />`, `honeypot.canaries`), impossible
+travel, a session used from another country. `WebShellProbe`, `SecurityFilesProbe` (baseline at
+every `status:deploy`) and `ComposerAuditProbe` go in a `security` group. Unblock:
+`php artisan status:security --unblock=<ip>`.
 
 **Reacting in code**: when matching on `ComponentStatus`, handle `Maintenance` too (or add a
 `default` arm).
