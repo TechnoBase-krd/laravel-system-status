@@ -213,11 +213,150 @@ return [
         ],
     ],
 
+    // Suspicious activity: attack patterns in the traffic, login abuse, signal (SMS / OTP) cost
+    // abuse and risky actions reported from code. Each finding is stored, shown in the page's
+    // "Suspicious activity" panel and `php artisan status:security`, sent to the alert channels
+    // and fires Technobase\SystemStatus\Events\SuspiciousActivityDetected. Off by default.
+    // Request IPs come from $request->ip(): behind a load balancer or Cloudflare, configure
+    // Laravel's trusted proxies, or every request looks like it comes from the proxy.
+    'security' => [
+        'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_ENABLED', false),
+        // Cache store for the counters (null = the default store). Shared between servers, it
+        // should not be 'file' or 'array' on a multi-server setup.
+        'store' => null,
+        // The same finding (rule + IP or account) alerts once per this many minutes; while it
+        // goes on, its hit count keeps growing on the page.
+        'cooldown_minutes' => 30,
+        // Channels for security alerts (null = alerts.channels).
+        'alert_channels' => null,
+        // IPs and CIDR ranges never counted (office, monitoring, your own servers).
+        'ignore_ips' => [],
+
+        // Request rules, counted per IP. A request counts when every condition the rule sets
+        // matches: `statuses` (HTTP status), `paths` (Str::is patterns on the path),
+        // `contains` (text in the URL with its query string, decoded) and `user_agents` (text in
+        // the User-Agent). All are case-insensitive; a rule without any counts every request.
+        // More than `max` within `minutes` is a finding. Add your own rules the same way.
+        'requests' => [
+            // Denied requests: guessing tokens, IDs of other users, expired sessions in a loop.
+            'auth_errors' => ['statuses' => [401, 403, 419], 'max' => 30, 'minutes' => 5],
+            // Clients that keep going after the rate limiter stopped them.
+            'rate_limited' => ['statuses' => [429], 'max' => 50, 'minutes' => 5],
+            // Vulnerability scanners probing for files and tools a Laravel app never serves.
+            'scanner' => [
+                'paths' => [
+                    // Secrets and config files.
+                    '.env', '.env.*', '*/.env', '*/.env.*', 'env', '*.env', '.git', '.git/*', '*/.git/*',
+                    '.gitlab-ci.yml', '.svn*', '.hg*', '.bzr*', '.ds_store', '*/.ds_store', '.htaccess',
+                    '.htpasswd', 'web.config', '.npmrc', '.dockerenv', 'docker-compose.y*ml', 'dockerfile',
+                    '.aws/*', '.ssh/*', 'id_rsa*', '.bash_history', '.kube/*', '.s3cfg', '.vscode/*',
+                    '.idea/*', 'composer.json', 'composer.lock', 'package.json', 'config.php', 'config.y*ml',
+                    'config/database.php', 'storage/*.key', 'oauth-private.key', 'secrets.*', '.git-credentials',
+                    // Laravel internals: logs, vendor, the Ignition RCE (CVE-2021-3129).
+                    'storage/logs/*', '*/laravel.log', 'laravel.log', 'vendor/*', '_ignition/*',
+                    'telescope/telescope-api/*', 'artisan', 'server.php', 'bootstrap/cache/*',
+                    // Backups and database dumps.
+                    '*.sql', '*.sql.*', '*.bak', '*.backup', '*.old', '*.orig', '*.swp', '*~', 'dump.*', 'db.*',
+                    'database.*', '*.tar', '*.tar.gz', '*.tgz', '*.7z',
+                    'www.zip', 'site.zip', 'backup.zip', 'html.zip', 'public.zip',
+                    // WordPress and other CMSs.
+                    'wp-admin*', 'wp-login.php', 'wp-content/*', 'wp-includes/*', 'wp-json/*', 'wp-config*',
+                    '*/wp-admin/*', '*/wp-includes/*', '*/wp-login.php', 'wordpress/*', 'wp/*', 'xmlrpc.php',
+                    // Database and admin tools.
+                    'phpmyadmin*', '*/phpmyadmin*', 'pma', 'pma/*', 'myadmin*', 'mysqladmin*', 'dbadmin*',
+                    'adminer*', 'sqlitemanager*', 'phppgadmin*', 'webdav*',
+                    // Web shells, PHP probes and known exploit paths.
+                    'phpinfo*', 'info.php', 'test.php', 'shell*.php', 'cmd.php', 'c99*.php', 'r57*.php',
+                    'wso*.php', 'alfa*.php', 'eval-stdin.php', '*/eval-stdin.php', 'vendor/phpunit/*',
+                    '*.asp', '*.aspx', '*.jsp', '*.cgi', '*.pl', 'cgi-bin/*', 'boaform/*', 'gponform/*',
+                    'hnap1*', 'setup.cgi', 'manager/html*', 'jmx-console*',
+                    'invoker/*', 'solr/*', 'struts*', 'actuator*', 'druid/*', 'nacos/*', 'geoserver/*',
+                    'owa/*', 'ecp/*', 'autodiscover/*', 'remote/login*', 'dana-na/*', 'global-protect/*',
+                    '_profiler*', 'elmah.axd', 'trace.axd', 'server-status', 'server-info',
+                    'debug/default/view*', 'latest/meta-data*', 'computemetadata/*',
+                ],
+                'max' => 3,
+                'minutes' => 10,
+            ],
+            // Attack payloads in the URL: SQL injection, XSS, path traversal, file inclusion,
+            // command injection, template injection, Log4Shell and cloud-metadata SSRF.
+            'injection' => [
+                'contains' => [
+                    'union select', 'union all select', 'union/**/select', '/**/', ' or 1=1', "' or '1'='1",
+                    '" or "1"="1', "' or 1=1", 'sleep(', 'benchmark(', 'waitfor delay', 'pg_sleep',
+                    'information_schema', 'load_file(', 'into outfile', 'xp_cmdshell', '@@version',
+                    '<script', '</script', 'javascript:', 'onerror=', 'onload=', 'onmouseover=',
+                    '<svg', '<iframe', 'document.cookie', 'alert(', 'prompt(',
+                    '../', '..\\', '/etc/passwd', '/etc/shadow', 'win.ini', 'boot.ini', '/proc/self/',
+                    'php://', 'file://', 'data://text', 'expect://', 'phar://', 'zip://', 'gopher://', 'dict://',
+                    'base64_decode(', 'eval(', 'assert(', 'system(', 'shell_exec(', 'passthru(', 'popen(',
+                    'proc_open(', 'cmd.exe', '/bin/sh', '/bin/bash', ';wget ', '|wget ', ';curl ', '|curl ',
+                    '$(', '`id`', ';id;', '|id|', '${jndi:', '${${', '{{7*7}}', '${7*7}', '<%= 7*7', '#{7*7}',
+                    '<?php', "\0", '169.254.169.254', 'metadata.google.internal', '100.100.100.200',
+                ],
+                'max' => 2,
+                'minutes' => 10,
+            ],
+            // Known attack and scanning tools by their User-Agent.
+            'scanner_tools' => [
+                'user_agents' => [
+                    'sqlmap', 'nikto', 'nmap', 'masscan', 'zgrab', 'nuclei', 'wpscan', 'dirbuster', 'gobuster',
+                    'feroxbuster', 'ffuf', 'wfuzz', 'dirsearch', 'acunetix', 'nessus', 'openvas', 'netsparker',
+                    'burpcollaborator', 'arachni', 'w3af', 'skipfish', 'whatweb', 'jaeles', 'xsstrike',
+                    'commix', 'hydra', 'zmeu', 'morfeus', 'censysinspect', 'l9explore', 'fuzz faster',
+                    'nimbostratus',
+                ],
+                'max' => 1,
+                'minutes' => 10,
+            ],
+            // Crawling or guessing URLs.
+            'not_found' => ['statuses' => [404], 'max' => 100, 'minutes' => 5],
+        ],
+
+        // Logins, from Laravel's Illuminate\Auth\Events (Breeze, Fortify, Jetstream, Filament and
+        // Auth::attempt() fire them). Passwords are never read; account names are masked.
+        'logins' => [
+            // Failed logins per IP, and per account name (one account attacked from many IPs).
+            'failed' => ['max' => 10, 'minutes' => 10],
+            'failed_per_account' => ['max' => 5, 'minutes' => 10],
+            // A user signs in from a country they never used before. The country comes from a
+            // request header set by the proxy (Cloudflare: CF-IPCountry); null turns it off.
+            'new_country' => true,
+            'country_header' => 'CF-IPCountry',
+            // A user signs in from an IP they never used before. Noisy for mobile users, useful
+            // for a small backoffice team.
+            'new_ip' => false,
+            // Which users get new-country / new-IP checks: users passing this Gate ability, else
+            // users with one of these roles (hasRole), else everybody.
+            'watch_gate' => null,
+            'watch_roles' => [],
+        ],
+
+        // Signal volume per component (StatusSignal::success() / failure()): more than `max`
+        // calls within `minutes`, or more than `max_per_ip` from one IP, is a finding. Catches
+        // bots that burn an SMS / OTP budget. E.g. 'otp' => ['max' => 500, 'max_per_ip' => 10, 'minutes' => 60].
+        'signals' => [],
+
+        // Risky actions reported from code: StatusSecurity::action('roles.changed', $user).
+        // 'alert' => true alerts every time; 'max' + 'minutes' alerts when one user does it more
+        // often than that. Actions not listed here only alert in quiet hours.
+        'actions' => [
+            'roles.changed' => ['alert' => true],
+            'export' => ['max' => 10, 'minutes' => 60],
+            'bulk_delete' => ['max' => 3, 'minutes' => 60],
+        ],
+        // Any reported action within these hours (app timezone) alerts, e.g.
+        // ['from' => '23:00', 'to' => '06:00']. null = off.
+        'quiet_hours' => null,
+    ],
+
     'retention_days' => [
         'checks' => 7,
         'route_buckets' => 7,
         'daily' => 90,
         'incidents' => 90,
+        // Suspicious activity findings and the IPs / countries users signed in from.
+        'security' => 90,
     ],
 
     // Queues that get a heartbeat job every minute. connection null = the default connection.

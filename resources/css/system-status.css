@@ -655,6 +655,343 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     --sst-tone: var(--sst-major);
 }
 
+.sst .sst-security-count {
+    margin-inline-start: auto;
+    font-size: .8rem;
+    color: var(--sst-muted);
+}
+
+/* ---------- suspicious activity: live panel ---------- */
+.sst .sst-security-panel {
+    --sst-sec: var(--sst-ok);
+    position: relative;
+    border-inline-start: 4px solid var(--sst-sec);
+    transition: border-color .4s var(--sst-ease), box-shadow .4s var(--sst-ease);
+}
+
+.sst .sst-security-panel[data-state="warn"] { --sst-sec: var(--sst-degraded); }
+.sst .sst-security-panel[data-state="alert"] { --sst-sec: var(--sst-major); }
+
+.sst .sst-security-panel .sst-panel-head {
+    justify-content: flex-start;
+}
+
+/* A soft light that sweeps across the header, like a radar pass: the monitor is working. */
+.sst .sst-security-scan {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3rem;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.sst .sst-security-scan::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inline-size: 30%;
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--sst-sec) 14%, transparent), transparent);
+    animation: sst-scan 3.6s cubic-bezier(.45, 0, .55, 1) infinite;
+}
+
+.sst .sst-security-shield {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    inline-size: 1.7rem;
+    block-size: 1.7rem;
+    margin-inline-end: .35rem;
+    border-radius: 999px;
+    color: var(--sst-sec);
+    background: color-mix(in oklab, var(--sst-sec) 14%, var(--sst-surface));
+}
+
+.sst .sst-security-shield::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 2px solid var(--sst-sec);
+    animation: sst-ring 2.4s var(--sst-ease) infinite;
+}
+
+.sst .sst-live {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .1rem .55rem;
+    border-radius: 999px;
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: color-mix(in oklab, var(--sst-sec) 75%, var(--sst-fg));
+    background: color-mix(in oklab, var(--sst-sec) 12%, var(--sst-surface));
+}
+
+.sst .sst-live-dot {
+    position: relative;
+    inline-size: .5rem;
+    block-size: .5rem;
+    border-radius: 999px;
+    background: var(--sst-sec);
+}
+
+.sst .sst-live-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--sst-sec);
+    animation: sst-ring 1.6s var(--sst-ease) infinite;
+}
+
+.sst .sst-security-range {
+    margin-inline-start: .25rem;
+    font-size: .8rem;
+    font-weight: 500;
+    color: var(--sst-muted);
+}
+
+.sst .sst-security-more {
+    margin: 0;
+    padding-block: .5rem .25rem;
+    font-size: .78rem;
+    color: var(--sst-muted);
+}
+
+.sst .sst-security-empty {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin: 0;
+    padding-block: .75rem;
+    font-size: .875rem;
+    color: var(--sst-muted);
+}
+
+.sst .sst-security-empty i {
+    color: var(--sst-ok);
+}
+
+/* A new finding arrived: the panel pings once and the row flashes in. */
+.sst .sst-security-panel.is-pinged {
+    animation: sst-ping 1s var(--sst-ease);
+}
+
+.sst .sst-security-event {
+    padding: 0;
+    animation: sst-enter .4s cubic-bezier(.16, 1, .3, 1) both;
+    animation-delay: calc(var(--sst-i, 0) * 35ms);
+}
+
+.sst .sst-security-event.is-new {
+    animation: sst-enter .4s cubic-bezier(.16, 1, .3, 1) both, sst-flash 2.4s var(--sst-ease);
+}
+
+.sst .sst-security-open {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: .25rem .75rem;
+    inline-size: 100%;
+    margin: 0;
+    padding: .55rem .5rem;
+    border: 0;
+    border-radius: .5rem;
+    font: inherit;
+    text-align: start;
+    color: inherit;
+    background: transparent;
+    transition: background-color .18s var(--sst-ease);
+}
+
+.sst .sst-security-open:hover,
+.sst .sst-security-open:focus-visible {
+    background: var(--sst-surface-2);
+}
+
+.sst .sst-security-open:focus-visible {
+    outline: 2px solid var(--sst-accent);
+    outline-offset: -2px;
+}
+
+.sst .sst-security-open .sst-deploy-version {
+    font-weight: 600;
+    font-variant-numeric: normal;
+    overflow-wrap: anywhere;
+}
+
+.sst .sst-security-open .sst-deploy-version i {
+    margin-inline-end: .45rem;
+    color: var(--sst-major);
+}
+
+.sst .sst-security-open .sst-deploy-result {
+    margin-inline-start: auto;
+}
+
+.sst .sst-security-chevron {
+    align-self: center;
+    font-size: .7rem;
+    color: var(--sst-muted);
+    transition: transform .18s var(--sst-ease);
+}
+
+.sst .sst-security-open:hover .sst-security-chevron {
+    transform: translateX(3px);
+}
+
+[dir="rtl"] .sst .sst-security-chevron {
+    transform: scaleX(-1);
+}
+
+[dir="rtl"] .sst .sst-security-open:hover .sst-security-chevron {
+    transform: scaleX(-1) translateX(3px);
+}
+
+/* "Ongoing" / "Ended" */
+.sst .sst-sec-state {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .05rem .55rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 700;
+    color: var(--sst-muted);
+    background: var(--sst-surface-2);
+}
+
+.sst .sst-sec-state[data-active="1"] {
+    color: color-mix(in oklab, var(--sst-major) 80%, var(--sst-fg));
+    background: color-mix(in oklab, var(--sst-major) 12%, var(--sst-surface));
+}
+
+.sst .sst-sec-state[data-active="1"]::before {
+    content: "";
+    inline-size: .4rem;
+    block-size: .4rem;
+    border-radius: 999px;
+    background: var(--sst-major);
+    animation: sst-blink 1.2s steps(2, jump-none) infinite;
+}
+
+/* ---------- suspicious activity: detail dialog ---------- */
+dialog.sst-security-dialog {
+    inline-size: min(46rem, calc(100vw - 2rem));
+}
+
+.sst-security-dialog .sst-sec-head {
+    background: linear-gradient(135deg, color-mix(in oklab, var(--sst-major) 9%, var(--sst-surface)), var(--sst-surface-2));
+}
+
+.sst-security-dialog .sst-sec-badge {
+    position: relative;
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    inline-size: 2.5rem;
+    block-size: 2.5rem;
+    border-radius: .8rem;
+    font-size: 1.05rem;
+    color: #fff;
+    background: var(--sst-major);
+    box-shadow: 0 6px 18px -6px var(--sst-major);
+}
+
+.sst-security-dialog[data-category="login"] .sst-sec-badge { background: var(--sst-degraded); box-shadow: 0 6px 18px -6px var(--sst-degraded); }
+.sst-security-dialog[data-category="action"] .sst-sec-badge { background: var(--sst-accent); box-shadow: 0 6px 18px -6px var(--sst-accent); }
+
+.sst-security-dialog.is-open .sst-sec-badge {
+    animation: sst-pop .5s cubic-bezier(.34, 1.56, .64, 1) .1s both;
+}
+
+.sst-security-dialog .sst-sec-text {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.sst-security-dialog.is-loading .sst-sec-text {
+    color: var(--sst-muted);
+}
+
+.sst-security-dialog .sst-kpi-time {
+    font-size: .95rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.sst .sst-sec-facts {
+    display: grid;
+    grid-template-columns: minmax(7rem, max-content) 1fr;
+    gap: .55rem 1.25rem;
+    margin: 0;
+    padding: 1rem 1.25rem;
+    font-size: .875rem;
+}
+
+.sst .sst-sec-facts dt {
+    font-weight: 600;
+    color: var(--sst-muted);
+    text-transform: capitalize;
+}
+
+.sst .sst-sec-facts dd {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .82rem;
+    overflow-wrap: anywhere;
+}
+
+.sst .sst-sec-copy {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 1.75rem;
+    block-size: 1.75rem;
+    border: 1px solid var(--sst-border);
+    border-radius: .45rem;
+    color: var(--sst-muted);
+    background: var(--sst-surface);
+    transition: color .18s var(--sst-ease), border-color .18s var(--sst-ease);
+}
+
+.sst .sst-sec-copy:hover,
+.sst .sst-sec-copy.is-copied {
+    color: var(--sst-ok);
+    border-color: var(--sst-ok);
+}
+
+.sst .sst-sec-advice {
+    border-inline-start: 4px solid var(--sst-accent);
+}
+
+.sst .sst-sec-advice .sst-panel-title i {
+    color: var(--sst-degraded);
+}
+
+.sst .sst-sec-advice p {
+    font-size: .875rem;
+    line-height: 1.6;
+}
+
+@media (max-width: 560px) {
+    .sst .sst-sec-facts {
+        grid-template-columns: 1fr;
+        gap: .15rem;
+    }
+
+    .sst .sst-sec-facts dd {
+        margin-block-end: .5rem;
+    }
+}
+
 .sst .sst-bars .sst-bar {
     flex: 1 1 0;
     min-inline-size: 0;
@@ -1390,6 +1727,24 @@ dialog.sst-sheet.is-open,
 
 @keyframes sst-pop {
     from { opacity: 0; transform: translateY(-4px) scale(.98); }
+}
+
+@keyframes sst-scan {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(340%); }
+}
+
+@keyframes sst-ping {
+    30% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--sst-sec, var(--sst-major)) 30%, transparent); }
+}
+
+@keyframes sst-flash {
+    from { background: color-mix(in oklab, var(--sst-major) 16%, transparent); }
+    to { background: transparent; }
+}
+
+@keyframes sst-blink {
+    50% { opacity: .2; }
 }
 
 @keyframes sst-spin {

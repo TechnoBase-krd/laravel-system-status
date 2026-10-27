@@ -2,11 +2,14 @@
 
 namespace Technobase\SystemStatus;
 
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event as Events;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Pulse\Livewire\Card;
 use Livewire\Livewire;
@@ -17,8 +20,10 @@ use Technobase\SystemStatus\Console\MaintenanceCommand;
 use Technobase\SystemStatus\Console\PruneStatusCommand;
 use Technobase\SystemStatus\Console\ReportCommand;
 use Technobase\SystemStatus\Console\RunStatusChecksCommand;
+use Technobase\SystemStatus\Console\SecurityCommand;
 use Technobase\SystemStatus\Console\TestAlertCommand;
 use Technobase\SystemStatus\Http\Middleware\RecordRouteHealth;
+use Technobase\SystemStatus\Listeners\RecordLoginActivity;
 use Technobase\SystemStatus\Support\StatusAlerter;
 use Throwable;
 
@@ -42,9 +47,19 @@ class SystemStatusServiceProvider extends ServiceProvider
         $this->loadViewsFrom(__DIR__.'/../resources/views', 'system-status');
         $this->loadTranslationsFrom(__DIR__.'/../lang', 'system-status');
 
-        if ($enabled && config('system-status.record_traffic', true) && $this->app->bound(Kernel::class)) {
-            // Counts requests and 5xx per component after the response is sent.
+        $security = $enabled && config('system-status.security.enabled', false);
+
+        if ($enabled && (config('system-status.record_traffic', true) || $security) && $this->app->bound(Kernel::class)) {
+            // Counts requests and 5xx per component after the response is sent, and passes them
+            // to the suspicious activity monitor.
             $this->app->make(Kernel::class)->pushMiddleware(RecordRouteHealth::class);
+        }
+
+        if ($enabled) {
+            // Failed and successful logins for the suspicious activity monitor (a no-op while
+            // security.enabled is off).
+            Events::listen(Failed::class, [RecordLoginActivity::class, 'failed']);
+            Events::listen(Login::class, [RecordLoginActivity::class, 'login']);
         }
 
         if ($this->app->runningInConsole()) {
@@ -57,6 +72,7 @@ class SystemStatusServiceProvider extends ServiceProvider
                 ReportCommand::class,
                 DoctorCommand::class,
                 DeployCommand::class,
+                SecurityCommand::class,
             ]);
 
             $this->publishes([
