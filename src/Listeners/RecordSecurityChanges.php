@@ -44,6 +44,10 @@ class RecordSecurityChanges
     public function roleChanged(object $event): void
     {
         try {
+            if (! config('system-status.security.watch_changes.roles', true)) {
+                return;
+            }
+
             $model = $event->model ?? null;
             $items = $event->rolesOrIds ?? $event->permissionsOrIds ?? null;
             $names = collect(is_iterable($items) ? $items : [$items])
@@ -62,12 +66,16 @@ class RecordSecurityChanges
     }
 
     /**
-     * watch_changes.tokens: true = owners the login watch rules watch, a list = owners of these
-     * model classes.
+     * watch_changes.tokens: false (default) = none, a list = owners of these model classes,
+     * true = owners the login watch rules watch.
      */
     private function watchesTokensOf(mixed $owner): bool
     {
-        $setting = config('system-status.security.watch_changes.tokens', true);
+        $setting = config('system-status.security.watch_changes.tokens', false);
+
+        if ($setting === false || $setting === null || $setting === []) {
+            return false;
+        }
 
         if (is_array($setting)) {
             foreach ($setting as $class) {

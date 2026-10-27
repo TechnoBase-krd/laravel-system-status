@@ -836,9 +836,9 @@ With `watch_changes`, a new Laravel Sanctum token and a role or permission given
 (spatie/laravel-permission with `permission.events_enabled`) are reported as risky actions, with
 who did it.
 
-`tokens` is `true` (tokens of the users `logins.watch_gate` / `watch_roles` watch; everybody
-when neither is set), a list of owner model classes, or `false`. When customers get a token at
-every app login, list only the staff models so a login is not an alert:
+`tokens` is off (`false`) by default, because many apps give customers a token at every login.
+List the staff models whose new tokens matter, or set `true` for the users `logins.watch_gate` /
+`watch_roles` watch (everybody when neither is set):
 
 ```php
 'watch_changes' => ['tokens' => [App\Models\Admin::class], 'roles' => true],

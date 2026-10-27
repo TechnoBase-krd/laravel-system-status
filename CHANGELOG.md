@@ -33,7 +33,7 @@
   phpinfo), `WebShellProbe`, `SecurityFilesProbe` (code changed since the last deploy;
   `status:deploy` saves the baseline) and `ComposerAuditProbe`. The package's own checks of risky
   paths are signed with the `APP_KEY`, so the monitor does not report the server as a scanner.
-  `watch_changes.tokens` also takes a list of owner classes. `status:doctor` adds exposed files, HTTPS, HSTS, secure / http-only
+  `watch_changes.tokens` is off by default and takes a list of owner classes (staff models). `status:doctor` adds exposed files, HTTPS, HSTS, secure / http-only
   cookies, CORS, Debugbar and Telescope checks. New `status_security_blocks` table and `severity` column (run
   `php artisan migrate`), `system_status.security.unblock` route.
 - `enabled` (`SYSTEM_STATUS_ENABLED`, default `true`) turns the whole package off: no traffic
