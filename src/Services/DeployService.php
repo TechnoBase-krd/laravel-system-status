@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use Technobase\SystemStatus\Events\DeployRecorded;
 use Technobase\SystemStatus\Models\StatusDeploy;
+use Technobase\SystemStatus\Support\FileManifest;
 use Technobase\SystemStatus\Support\LatencyHistogram;
 use Technobase\SystemStatus\Support\StatusAlerter;
 use Technobase\SystemStatus\Support\StatusMetrics;
@@ -54,6 +55,15 @@ class DeployService
         }
 
         $this->alerter->event('deploy.recorded', $this->payload($deploy));
+
+        // The code files of this deploy become the baseline of SecurityFilesProbe.
+        if (config('system-status.security.enabled', false) && config('system-status.security.files.baseline_on_deploy', true)) {
+            try {
+                FileManifest::saveBaseline();
+            } catch (Throwable $e) {
+                Log::warning('The code file baseline could not be saved.', ['exception' => $e::class]);
+            }
+        }
 
         if (config('system-status.deploys.announce', false)) {
             $this->alerter->send(trim('🚀 Deployed '.$deploy->label().($deploy->note ? ' — '.$deploy->note : '')));

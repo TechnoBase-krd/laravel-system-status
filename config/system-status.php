@@ -229,8 +229,36 @@ return [
         'cooldown_minutes' => 30,
         // Channels for security alerts (null = alerts.channels).
         'alert_channels' => null,
-        // IPs and CIDR ranges never counted (office, monitoring, your own servers).
+        // IPs and CIDR ranges never counted or blocked (office, monitoring, your own servers).
         'ignore_ips' => [],
+
+        // Auto-block: an IP with a finding of one of these types (or any critical finding) gets
+        // 403 for `minutes`, from a middleware that runs before everything else. With a Cloudflare
+        // API token (Zone > Firewall Services > Edit) and zone id, the IP is also blocked at
+        // Cloudflare, so its requests never reach the server; the rule is removed when the block
+        // ends. Unblock with `php artisan status:security --unblock=<ip>` or from the page.
+        'block' => [
+            'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_BLOCK', false),
+            'minutes' => 60,
+            'types' => ['scanner', 'injection', 'scanner_tools', 'honeypot', 'honeypot_field', 'canary'],
+            'critical' => true,
+            'cloudflare' => [
+                'token' => env('SYSTEM_STATUS_CLOUDFLARE_TOKEN'),
+                'zone_id' => env('SYSTEM_STATUS_CLOUDFLARE_ZONE_ID'),
+            ],
+        ],
+
+        // Traps nobody but an attacker touches; one hit is a critical finding.
+        'honeypot' => [
+            // Paths that no page links to, e.g. ones listed as Disallow in robots.txt.
+            'paths' => [],
+            // A hidden form field: add <x-system-status::honeypot /> inside a form. A bot that
+            // fills every field fills this one too.
+            'field' => 'website_url',
+            // Fake secrets (an API key in an HTML comment, a password in robots.txt). Any request
+            // that carries one in its URL, headers or body is someone using what they found.
+            'canaries' => [],
+        ],
 
         // Request rules, counted per IP. A request counts when every condition the rule sets
         // matches: `statuses` (HTTP status), `paths` (Str::is patterns on the path),
@@ -239,7 +267,8 @@ return [
         // More than `max` within `minutes` is a finding. Add your own rules the same way.
         'requests' => [
             // Denied requests: guessing tokens, IDs of other users, expired sessions in a loop.
-            'auth_errors' => ['statuses' => [401, 403, 419], 'max' => 30, 'minutes' => 5],
+            // `max_total`: the same rule summed over all IPs, for attacks spread over a botnet.
+            'auth_errors' => ['statuses' => [401, 403, 419], 'max' => 30, 'max_total' => 500, 'minutes' => 5],
             // Clients that keep going after the rate limiter stopped them.
             'rate_limited' => ['statuses' => [429], 'max' => 50, 'minutes' => 5],
             // Vulnerability scanners probing for files and tools a Laravel app never serves.
@@ -276,7 +305,12 @@ return [
                     'debug/default/view*', 'latest/meta-data*', 'computemetadata/*',
                 ],
                 'max' => 3,
+                'max_total' => 300,
                 'minutes' => 10,
+                // Critical: one of these paths was served (2xx, not an HTML page), so a secret
+                // file or tool may be exposed. HTML is skipped because a catch-all route answers
+                // every path with the app's own page.
+                'critical' => ['statuses' => [200, 206], 'not_html' => true],
             ],
             // Attack payloads in the URL: SQL injection, XSS, path traversal, file inclusion,
             // command injection, template injection, Log4Shell and cloud-metadata SSRF.
@@ -295,7 +329,11 @@ return [
                     '<?php', "\0", '169.254.169.254', 'metadata.google.internal', '100.100.100.200',
                 ],
                 'max' => 2,
+                'max_total' => 100,
                 'minutes' => 10,
+                // Critical: the payload made the app fail, a sign the input reaches a query or
+                // a command unchecked.
+                'critical' => ['statuses' => [500]],
             ],
             // Known attack and scanning tools by their User-Agent.
             'scanner_tools' => [
@@ -310,14 +348,25 @@ return [
                 'minutes' => 10,
             ],
             // Crawling or guessing URLs.
-            'not_found' => ['statuses' => [404], 'max' => 100, 'minutes' => 5],
+            'not_found' => ['statuses' => [404], 'max' => 100, 'max_total' => 5000, 'minutes' => 5],
+        ],
+
+        // Reading many different records: one signed-in user opening more than `max` different
+        // URLs of the same route (orders/1, orders/2, …) within `minutes`. Catches scraping and
+        // IDOR (changing the id in the URL to read other people's data). Counts successful GET
+        // requests of routes with parameters; skip routes with `ignore_routes` (names, Str::is).
+        'records' => [
+            'max' => 200,
+            'minutes' => 10,
+            'only_authenticated' => true,
+            'ignore_routes' => [],
         ],
 
         // Logins, from Laravel's Illuminate\Auth\Events (Breeze, Fortify, Jetstream, Filament and
         // Auth::attempt() fire them). Passwords are never read; account names are masked.
         'logins' => [
             // Failed logins per IP, and per account name (one account attacked from many IPs).
-            'failed' => ['max' => 10, 'minutes' => 10],
+            'failed' => ['max' => 10, 'max_total' => 200, 'minutes' => 10],
             'failed_per_account' => ['max' => 5, 'minutes' => 10],
             // A user signs in from a country they never used before. The country comes from a
             // request header set by the proxy (Cloudflare: CF-IPCountry); null turns it off.
@@ -326,6 +375,12 @@ return [
             // A user signs in from an IP they never used before. Noisy for mobile users, useful
             // for a small backoffice team.
             'new_ip' => false,
+            // Critical: a user signs in from another country within this many minutes of a
+            // login from a different one (too fast to travel). null = off.
+            'impossible_travel_minutes' => 120,
+            // Critical: a signed-in session is suddenly used from another country (a stolen
+            // session cookie). Needs the country header.
+            'session_country_change' => true,
             // Which users get new-country / new-IP checks: users passing this Gate ability, else
             // users with one of these roles (hasRole), else everybody.
             'watch_gate' => null,
@@ -344,6 +399,26 @@ return [
             'roles.changed' => ['alert' => true],
             'export' => ['max' => 10, 'minutes' => 60],
             'bulk_delete' => ['max' => 3, 'minutes' => 60],
+        ],
+        // Report these changes as risky actions by themselves: new API tokens (Laravel Sanctum)
+        // and roles or permissions given or taken (spatie/laravel-permission with
+        // permission.events_enabled). tokens: true = tokens of the users logins.watch_gate /
+        // watch_roles watch (everybody when neither is set), a list of owner model classes (e.g.
+        // [App\Models\Admin::class] when customers get a token at every login), or false.
+        'watch_changes' => [
+            'tokens' => true,
+            'roles' => true,
+        ],
+
+        // Code files for SecurityFilesProbe: their hashes are saved at every status:deploy (or
+        // `php artisan status:security --baseline`); a PHP file added or changed outside a deploy
+        // is a major outage. Web shells in upload folders are reported by WebShellProbe.
+        'files' => [
+            // bootstrap/cache is left out: php artisan optimize rewrites it outside deploys.
+            'paths' => ['app', 'bootstrap/app.php', 'bootstrap/providers.php', 'config', 'database', 'public', 'resources/views', 'routes', 'lang'],
+            'extensions' => ['php', 'phtml', 'phar', 'php5', 'php7', 'phps', 'htaccess', 'user.ini'],
+            'baseline' => storage_path('app/system-status/files.json'),
+            'baseline_on_deploy' => true,
         ],
         // Any reported action within these hours (app timezone) alerts, e.g.
         // ['from' => '23:00', 'to' => '06:00']. null = off.

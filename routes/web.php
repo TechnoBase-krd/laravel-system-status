@@ -36,6 +36,8 @@ Route::middleware([EnsureSystemStatusEnabled::class, ...(array) config('system-s
             Route::patch($path.'/incidents/{incident}', [StatusManagementController::class, 'updateIncident'])
                 ->whereNumber('incident')
                 ->name('system_status.incidents.update');
+            Route::post($path.'/security/unblock', [StatusManagementController::class, 'unblock'])
+                ->name('system_status.security.unblock');
             Route::post($path.'/maintenances', [StatusManagementController::class, 'storeMaintenance'])
                 ->name('system_status.maintenances.store');
             Route::delete($path.'/maintenances/{maintenance}', [StatusManagementController::class, 'endMaintenance'])

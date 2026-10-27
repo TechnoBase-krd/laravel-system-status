@@ -6,6 +6,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,7 @@ use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\IpUtils;
 use Technobase\SystemStatus\Events\SuspiciousActivityDetected;
 use Technobase\SystemStatus\Models\StatusSecurityEvent;
+use Technobase\SystemStatus\Support\ProbeSignature;
 use Technobase\SystemStatus\Support\StatusAlerter;
 use Throwable;
 
@@ -32,7 +34,10 @@ class SecurityMonitor
     /** Seconds between two hit-count updates of a finding that goes on. */
     private const TOUCH_SECONDS = 60;
 
-    public function __construct(private readonly StatusAlerter $alerter) {}
+    public function __construct(
+        private readonly StatusAlerter $alerter,
+        private readonly SecurityBlocker $blocker,
+    ) {}
 
     public function enabled(): bool
     {
@@ -40,9 +45,10 @@ class SecurityMonitor
     }
 
     /**
-     * A finished request: checks it against every request rule.
+     * A finished request: honeypots and canaries, every request rule (per IP, critical when the
+     * attack may have worked, and summed over all IPs), record reading and session country.
      */
-    public function request(Request $request, int $status): void
+    public function request(Request $request, int $status, ?string $contentType = null): void
     {
         if (! $this->enabled()) {
             return;
@@ -50,7 +56,8 @@ class SecurityMonitor
 
         try {
             $ip = $request->ip();
-            if ($ip === null || $this->ignored($ip)) {
+            // The package's own signed checks (ExposedFilesProbe, the .env check) are not attacks.
+            if ($ip === null || $this->ignored($ip) || $this->blocker->blockedUntil($ip) !== null || ProbeSignature::valid($request)) {
                 return;
             }
 
@@ -59,6 +66,9 @@ class SecurityMonitor
             $lowerPath = mb_strtolower($path);
             $url = null;
             $agent = null;
+            $base = ['status' => $status, 'method' => $request->method(), 'path' => Str::limit('/'.$path, 180)];
+
+            $this->honeypots($request, $ip, $lowerPath, $base);
 
             foreach ((array) config('system-status.security.requests', []) as $name => $rule) {
                 if (! is_array($rule)) {
@@ -69,8 +79,13 @@ class SecurityMonitor
                 $paths = array_map(fn ($pattern) => mb_strtolower((string) $pattern), (array) ($rule['paths'] ?? []));
                 $contains = (array) ($rule['contains'] ?? []);
                 $agents = (array) ($rule['user_agents'] ?? []);
+                $critical = is_array($rule['critical'] ?? null) ? $rule['critical'] : null;
 
-                if (($statuses && ! in_array($status, $statuses, true)) || ($paths && ! Str::is($paths, $lowerPath))) {
+                // A rule with `critical` statuses also looks at those, even when its own
+                // `statuses` would skip them.
+                $criticalStatus = $critical && in_array($status, array_map('intval', (array) ($critical['statuses'] ?? [])), true);
+
+                if (($statuses && ! in_array($status, $statuses, true) && ! $criticalStatus) || ($paths && ! Str::is($paths, $lowerPath))) {
                     continue;
                 }
 
@@ -92,14 +107,204 @@ class SecurityMonitor
                     $subject = $needle;
                 }
 
-                $this->hit(StatusSecurityEvent::CATEGORY_REQUEST, (string) $name, (string) $name, $ip, $rule, [
+                $attributes = [
                     'ip' => $ip,
                     'subject' => $subject !== null ? Str::limit($subject, 180) : null,
-                    'details' => ['status' => $status, 'method' => $request->method(), 'path' => Str::limit('/'.$path, 180)],
-                ]);
+                    'details' => $base,
+                ];
+
+                // The attack may have worked: a scanned file was served, a payload broke the app.
+                if ($criticalStatus && (empty($critical['not_html']) || ! str_contains(mb_strtolower((string) $contentType), 'text/html'))) {
+                    $this->report(StatusSecurityEvent::CATEGORY_REQUEST, $name.'_critical', (string) $name, $ip.'|'.$lowerPath, $attributes + [
+                        'severity' => StatusSecurityEvent::SEVERITY_CRITICAL,
+                    ]);
+                }
+
+                if ($statuses && ! in_array($status, $statuses, true)) {
+                    continue;
+                }
+
+                $this->hit(StatusSecurityEvent::CATEGORY_REQUEST, (string) $name, (string) $name, $ip, $rule, $attributes);
+                $this->distributed(StatusSecurityEvent::CATEGORY_REQUEST, (string) $name, $ip, $rule);
             }
+
+            $this->records($request, $status, $ip);
+            $this->sessionCountry($request, $ip);
         } catch (Throwable $e) {
             $this->failed($e);
+        }
+    }
+
+    /**
+     * Honeypot paths, the hidden form field and canary secrets: one hit is critical.
+     *
+     * @param  array<string, mixed>  $base
+     */
+    private function honeypots(Request $request, string $ip, string $lowerPath, array $base): void
+    {
+        $honeypot = (array) config('system-status.security.honeypot', []);
+        $critical = ['ip' => $ip, 'severity' => StatusSecurityEvent::SEVERITY_CRITICAL, 'details' => $base];
+
+        $paths = array_map(fn ($pattern) => mb_strtolower(ltrim((string) $pattern, '/')), array_filter((array) ($honeypot['paths'] ?? [])));
+        if ($paths && Str::is($paths, $lowerPath)) {
+            $this->report(StatusSecurityEvent::CATEGORY_REQUEST, 'honeypot', null, $ip.'|'.$lowerPath, $critical + ['subject' => '/'.$lowerPath]);
+        }
+
+        $field = $honeypot['field'] ?? null;
+        if (filled($field) && ! $request->isMethod('GET') && filled($request->input((string) $field))) {
+            $this->report(StatusSecurityEvent::CATEGORY_REQUEST, 'honeypot_field', null, $ip, $critical + ['subject' => (string) $field]);
+        }
+
+        $canaries = array_values(array_filter((array) ($honeypot['canaries'] ?? []), fn ($canary) => is_string($canary) && mb_strlen($canary) >= 8));
+        if ($canaries !== []) {
+            $haystack = urldecode($request->getRequestUri())."\n"
+                .implode("\n", array_map(fn ($values) => implode(' ', (array) $values), $request->headers->all()))."\n"
+                .mb_substr((string) $request->getContent(), 0, 65536);
+
+            foreach ($canaries as $canary) {
+                if (str_contains($haystack, $canary)) {
+                    $this->report(StatusSecurityEvent::CATEGORY_REQUEST, 'canary', null, $ip.'|'.sha1($canary), $critical + [
+                        'subject' => mb_substr($canary, 0, 4).'***',
+                    ]);
+                }
+            }
+        }
+    }
+
+    /**
+     * The same rule summed over all IPs (`max_total`): an attack spread over a botnet.
+     *
+     * @param  array<string, mixed>  $rule
+     */
+    private function distributed(string $category, string $name, string $ip, array $rule): void
+    {
+        $max = (int) ($rule['max_total'] ?? 0);
+        $minutes = (int) ($rule['minutes'] ?? 0);
+
+        if ($max <= 0 || $minutes <= 0) {
+            return;
+        }
+
+        $store = $this->store();
+        $window = intdiv(now()->getTimestamp(), $minutes * 60);
+        $ttl = $minutes * 60 * 2;
+        $prefix = self::PREFIX.'total:'.sha1($name).':'.$window;
+
+        $store->add($prefix, 0, $ttl);
+        $count = (int) $store->increment($prefix);
+
+        // Distinct IPs in the window.
+        $store->add($prefix.':ips', 0, $ttl);
+        if ($store->add($prefix.':ip:'.sha1($ip), 1, $ttl)) {
+            $store->increment($prefix.':ips');
+        }
+
+        if ($count <= $max) {
+            return;
+        }
+
+        $this->report($category, 'distributed', $name, $name, [
+            'hits' => $count,
+            'window_minutes' => $minutes,
+            'max' => $max,
+            'details' => ['ips' => (int) $store->get($prefix.':ips', 0)],
+        ]);
+    }
+
+    /**
+     * One user (or IP) opening many different records of the same route: scraping or IDOR.
+     */
+    private function records(Request $request, int $status, string $ip): void
+    {
+        $settings = config('system-status.security.records');
+        $max = is_array($settings) ? (int) ($settings['max'] ?? 0) : 0;
+        $minutes = is_array($settings) ? (int) ($settings['minutes'] ?? 10) : 0;
+        $route = $request->route();
+
+        if ($max <= 0 || $minutes <= 0 || ! $request->isMethod('GET') || $status < 200 || $status >= 300 || ! $route instanceof Route) {
+            return;
+        }
+
+        $values = [];
+        foreach ($route->parameters() as $value) {
+            $value = $value instanceof Model ? $value->getRouteKey() : $value;
+            if (is_scalar($value)) {
+                $values[] = (string) $value;
+            }
+        }
+
+        $name = $route->getName() ?? $route->uri();
+        if ($values === [] || (($ignore = (array) ($settings['ignore_routes'] ?? [])) && Str::is($ignore, $name))) {
+            return;
+        }
+
+        $user = $request->user();
+        if (! $user && ($settings['only_authenticated'] ?? true)) {
+            return;
+        }
+
+        $actor = $user ? ($user instanceof Model ? $user->getMorphClass() : $user::class).':'.$user->getAuthIdentifier() : 'ip:'.$ip;
+        $store = $this->store();
+        $window = intdiv(now()->getTimestamp(), $minutes * 60);
+        $ttl = $minutes * 60 * 2;
+        $key = self::PREFIX.'records:'.sha1($actor."\x1f".$route->uri()).':'.$window;
+
+        // Only a record not opened before in this window counts.
+        if (! $store->add($key.':'.sha1(implode("\x1f", $values)), 1, $ttl)) {
+            return;
+        }
+
+        $store->add($key, 0, $ttl);
+        $count = (int) $store->increment($key);
+
+        if ($count > $max) {
+            $this->report(StatusSecurityEvent::CATEGORY_REQUEST, 'record_access', '/'.$route->uri(), $actor."\x1f".$route->uri(), [
+                'ip' => $ip,
+                'subject' => $user ? self::userLabel($user) : $ip,
+                'hits' => $count,
+                'window_minutes' => $minutes,
+                'max' => $max,
+            ]);
+        }
+    }
+
+    /**
+     * A signed-in session suddenly used from another country: a stolen session cookie.
+     */
+    private function sessionCountry(Request $request, string $ip): void
+    {
+        $logins = (array) config('system-status.security.logins', []);
+        $header = $logins['country_header'] ?? 'CF-IPCountry';
+
+        if (! ($logins['session_country_change'] ?? true) || blank($header) || ! $request->hasSession()) {
+            return;
+        }
+
+        $country = self::country($request->header((string) $header));
+        $user = $country !== null ? $request->user() : null;
+
+        if (! $user || blank($sessionId = $request->session()->getId())) {
+            return;
+        }
+
+        $store = $this->store();
+        $key = self::PREFIX.'session:'.sha1((string) $sessionId);
+        $known = $store->get($key);
+
+        if ($known === null) {
+            $store->put($key, $country, now()->addMinutes(max(60, (int) config('session.lifetime', 120))));
+
+            return;
+        }
+
+        if ($known !== $country) {
+            $this->report(StatusSecurityEvent::CATEGORY_LOGIN, 'session_country_change', null, $key.'|'.$country, [
+                'ip' => $ip,
+                'subject' => self::userLabel($user),
+                'country' => $country,
+                'severity' => StatusSecurityEvent::SEVERITY_CRITICAL,
+                'details' => ['session_country' => $known],
+            ]);
         }
     }
 
@@ -119,6 +324,7 @@ class SecurityMonitor
                 $this->hit(StatusSecurityEvent::CATEGORY_LOGIN, 'failed_logins', null, $ip, (array) ($logins['failed'] ?? []), [
                     'ip' => $ip,
                 ]);
+                $this->distributed(StatusSecurityEvent::CATEGORY_LOGIN, 'failed_logins', $ip, (array) ($logins['failed'] ?? []));
             }
 
             if (filled($account)) {
@@ -159,6 +365,30 @@ class SecurityMonitor
                 ->where('user_type', $userType)
                 ->where('user_id', $userId)
                 ->get(['ip', 'country']);
+
+            $travel = (int) ($logins['impossible_travel_minutes'] ?? 0);
+            if ($travel > 0 && $country !== null) {
+                $recent = DB::table('status_security_logins')
+                    ->where('user_type', $userType)
+                    ->where('user_id', $userId)
+                    ->whereNotNull('country')
+                    ->where('country', '!=', $country)
+                    ->where('last_seen_at', '>=', now()->subMinutes($travel))
+                    ->orderByDesc('last_seen_at')
+                    ->first();
+
+                if ($recent) {
+                    $this->report(StatusSecurityEvent::CATEGORY_LOGIN, 'impossible_travel', null, "{$userType}:{$userId}:{$recent->country}:{$country}", [
+                        'ip' => $ip, 'subject' => $subject, 'country' => $country,
+                        'severity' => StatusSecurityEvent::SEVERITY_CRITICAL,
+                        'details' => [
+                            'from_country' => $recent->country,
+                            'from_ip' => $recent->ip,
+                            'minutes' => (int) Carbon::parse($recent->last_seen_at)->diffInMinutes(now()),
+                        ],
+                    ]);
+                }
+            }
 
             if ($known->isNotEmpty()) {
                 if ($checkIp && ! $known->contains('ip', $ip)) {
@@ -232,7 +462,7 @@ class SecurityMonitor
      *
      * @param  array<string, scalar|null>  $details  no secrets or personal data
      */
-    public function action(string $action, ?Authenticatable $actor = null, array $details = [], ?string $ip = null): void
+    public function action(string $action, ?Authenticatable $actor = null, array $details = [], ?string $ip = null, bool $always = false): void
     {
         if (! $this->enabled()) {
             return;
@@ -248,7 +478,7 @@ class SecurityMonitor
                 'details' => self::details($details),
             ];
 
-            if (! empty($rule['alert'])) {
+            if ($always || ! empty($rule['alert'])) {
                 // Every occurrence is its own finding.
                 $this->report(StatusSecurityEvent::CATEGORY_ACTION, 'action', $action, $actorKey.':'.Str::uuid(), $attributes);
 
@@ -355,6 +585,7 @@ class SecurityMonitor
         $event = StatusSecurityEvent::query()->create([
             'category' => $category,
             'type' => $type,
+            'severity' => $attributes['severity'] ?? StatusSecurityEvent::SEVERITY_WARNING,
             'rule' => $rule !== null ? Str::limit($rule, 100, '') : null,
             'ip' => $attributes['ip'] ?? null,
             'subject' => isset($attributes['subject']) ? Str::limit((string) $attributes['subject'], 191, '') : null,
@@ -368,6 +599,12 @@ class SecurityMonitor
         ]);
 
         $store->put($finding, $event->id, $cooldown);
+
+        if ($this->blocker->shouldBlock($event) && ($until = $this->blocker->block($event))) {
+            $event->details = [...(array) $event->details, 'blocked_until' => $until->format('Y-m-d H:i')];
+            $event->save();
+        }
+
         $this->announce($event);
 
         return $event;
@@ -396,10 +633,14 @@ class SecurityMonitor
 
     private function announce(StatusSecurityEvent $event): void
     {
-        $text = '🛡️ Suspicious activity: '.$event->describe('en').'.';
+        $text = ($event->isCritical() ? '🚨 CRITICAL — possible breach: ' : '🛡️ Suspicious activity: ').$event->describe('en').'.';
 
         if ($event->category === StatusSecurityEvent::CATEGORY_REQUEST && $event->window_minutes) {
             $text .= ' Rule: '.$event->rule.' (more than '.$event->max.' in '.$event->window_minutes.' min).';
+        }
+
+        if (isset($event->details['blocked_until'])) {
+            $text .= ' IP blocked until '.$event->details['blocked_until'].'.';
         }
 
         $channels = config('system-status.security.alert_channels');
@@ -408,6 +649,7 @@ class SecurityMonitor
             'id' => $event->id,
             'category' => $event->category,
             'type' => $event->type,
+            'severity' => $event->severity,
             'rule' => $event->rule,
             'ip' => $event->ip,
             'subject' => $event->subject,
@@ -430,6 +672,19 @@ class SecurityMonitor
     /**
      * @param  array<string, mixed>  $logins
      */
+    /**
+     * Whether the logins.watch_gate / watch_roles rules watch this user (everybody when neither
+     * is set).
+     */
+    public function watchesUser(Authenticatable $user): bool
+    {
+        try {
+            return $this->watches($user, (array) config('system-status.security.logins', []));
+        } catch (Throwable) {
+            return true;
+        }
+    }
+
     private function watches(Authenticatable $user, array $logins): bool
     {
         if (filled($logins['watch_gate'] ?? null)) {

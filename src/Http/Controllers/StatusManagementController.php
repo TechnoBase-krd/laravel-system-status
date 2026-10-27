@@ -18,12 +18,23 @@ use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Services\IncidentService;
 use Technobase\SystemStatus\Services\MaintenanceService;
+use Technobase\SystemStatus\Services\SecurityBlocker;
 
 /**
  * Write actions of the page. Access: AuthorizeSystemStatus, then AuthorizeSystemStatusManagement.
  */
 class StatusManagementController extends Controller
 {
+    /**
+     * Ends the block of an IP (security.block), also at Cloudflare.
+     */
+    public function unblock(Request $request, SecurityBlocker $blocker): JsonResponse
+    {
+        $ip = $request->validate(['ip' => ['required', 'ip']])['ip'];
+
+        return response()->json(['data' => ['ip' => $ip, 'unblocked' => $blocker->unblock($ip)]]);
+    }
+
     public function storeIncident(StoreIncidentRequest $request, IncidentService $service, GetStatusSummaryAction $summary): JsonResponse
     {
         $incident = $service->post(

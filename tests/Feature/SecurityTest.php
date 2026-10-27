@@ -193,6 +193,7 @@ it('reports failed logins per IP', function () {
 });
 
 it('reports a login from a new country, not the first login', function () {
+    config()->set('system-status.security.logins.impossible_travel_minutes', null);
     $user = User::query()->create(['name' => 'Sara']);
     $monitor = app(SecurityMonitor::class);
 
@@ -214,6 +215,7 @@ it('reports a login from a new country, not the first login', function () {
 });
 
 it('reads the country from the login request header', function () {
+    config()->set('system-status.security.logins.impossible_travel_minutes', null);
     $user = User::query()->create(['name' => 'Ali']);
     app(SecurityMonitor::class)->login($user, '127.0.0.1', 'IQ');
 

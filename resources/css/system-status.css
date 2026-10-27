@@ -878,6 +878,56 @@ html[dir="rtl"] .sst .sst-group.is-collapsed .sst-chevron {
     animation: sst-blink 1.2s steps(2, jump-none) infinite;
 }
 
+.sst .sst-sec-critical,
+.sst .sst-sec-blocked {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .05rem .55rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 700;
+}
+
+.sst .sst-sec-critical {
+    color: #fff;
+    background: var(--sst-major);
+    animation: sst-blink 1.6s steps(2, jump-none) 3;
+}
+
+.sst .sst-sec-blocked {
+    color: var(--sst-fg);
+    background: var(--sst-surface-2);
+    border: 1px solid var(--sst-border);
+}
+
+.sst .sst-security-event[data-severity="critical"] {
+    background: color-mix(in oklab, var(--sst-major) 7%, transparent);
+    border-radius: .5rem;
+}
+
+.sst .sst-sec-unblock {
+    padding: .2rem .7rem;
+    border: 1px solid var(--sst-border);
+    border-radius: 999px;
+    font: inherit;
+    font-family: inherit;
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--sst-fg);
+    background: var(--sst-surface);
+    transition: border-color .18s var(--sst-ease), color .18s var(--sst-ease);
+}
+
+.sst .sst-sec-unblock:hover {
+    color: var(--sst-ok);
+    border-color: var(--sst-ok);
+}
+
+.sst .sst-sec-unblock:disabled {
+    opacity: .5;
+}
+
 /* ---------- suspicious activity: detail dialog ---------- */
 dialog.sst-security-dialog {
     inline-size: min(46rem, calc(100vw - 2rem));
@@ -902,6 +952,15 @@ dialog.sst-security-dialog {
 }
 
 .sst-security-dialog[data-category="login"] .sst-sec-badge { background: var(--sst-degraded); box-shadow: 0 6px 18px -6px var(--sst-degraded); }
+.sst-security-dialog[data-severity="critical"] .sst-sec-badge {
+    background: var(--sst-major);
+    animation: sst-pop .5s cubic-bezier(.34, 1.56, .64, 1) .1s both, sst-critical-glow 1.8s ease-in-out .6s infinite;
+}
+
+.sst-security-dialog[data-severity="critical"] .sst-sec-head {
+    background: linear-gradient(135deg, color-mix(in oklab, var(--sst-major) 20%, var(--sst-surface)), var(--sst-surface-2));
+}
+
 .sst-security-dialog[data-category="action"] .sst-sec-badge { background: var(--sst-accent); box-shadow: 0 6px 18px -6px var(--sst-accent); }
 
 .sst-security-dialog.is-open .sst-sec-badge {
@@ -1741,6 +1800,10 @@ dialog.sst-sheet.is-open,
 @keyframes sst-flash {
     from { background: color-mix(in oklab, var(--sst-major) 16%, transparent); }
     to { background: transparent; }
+}
+
+@keyframes sst-critical-glow {
+    50% { box-shadow: 0 0 0 6px color-mix(in oklab, var(--sst-major) 25%, transparent), 0 6px 18px -6px var(--sst-major); }
 }
 
 @keyframes sst-blink {

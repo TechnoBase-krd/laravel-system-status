@@ -66,6 +66,14 @@
             lastDeploy: @json(__('system-status::status.status_last_deploy', ['version' => ':version', 'ago' => ':ago'])),
             securityCount: @json(__('system-status::status.status_security_count', ['count' => ':count'])),
             securityHits: @json(__('system-status::status.status_security_hits', ['hits' => ':hits'])),
+            securityCritical: @json(__('system-status::status.status_security_critical_badge')),
+            securityBlocked: @json(__('system-status::status.status_security_blocked_badge')),
+            securityBlockedUntil: @json(__('system-status::status.status_security_blocked_until', ['time' => ':time'])),
+            securityUnblock: @json(__('system-status::status.status_security_unblock')),
+            securityUnblocked: @json(__('system-status::status.status_security_unblocked', ['ip' => ':ip'])),
+            securityLabelBlocked: @json(__('system-status::status.status_security_label_blocked')),
+            securityCriticalCount: @json(__('system-status::status.status_security_critical_count', ['count' => ':count'])),
+            securityBlockedCount: @json(__('system-status::status.status_security_blocked_count', ['count' => ':count'])),
             securityMore: @json(__('system-status::status.status_security_more', ['count' => ':count'])),
             securityWatching: @json(__('system-status::status.status_security_watching', ['count' => ':count'])),
             securityActive: @json(__('system-status::status.status_security_active')),
@@ -454,6 +462,7 @@
             const item = document.createElement('li');
             item.className = 'sst-deploy sst-security-event' + (isNew ? ' is-new' : '');
             item.dataset.category = event.category;
+            item.dataset.severity = event.severity || 'warning';
 
             const button = document.createElement('button');
             button.type = 'button';
@@ -477,6 +486,20 @@
             hits.textContent = fill(i18n.securityHits, {hits: numberFormat.format(event.hits)});
 
             button.append(text, meta);
+            if (event.severity === 'critical') {
+                const critical = document.createElement('span');
+                critical.className = 'sst-sec-critical';
+                critical.innerHTML = '<i class="fas fa-exclamation-triangle" aria-hidden="true"></i>';
+                critical.appendChild(document.createTextNode(i18n.securityCritical));
+                button.appendChild(critical);
+            }
+            if (event.blocked) {
+                const blocked = document.createElement('span');
+                blocked.className = 'sst-sec-blocked';
+                blocked.innerHTML = '<i class="fas fa-ban" aria-hidden="true"></i>';
+                blocked.appendChild(document.createTextNode(i18n.securityBlocked));
+                button.appendChild(blocked);
+            }
             if (event.active) {
                 const live = document.createElement('span');
                 live.className = 'sst-sec-state';
@@ -511,12 +534,14 @@
             const more = $('sstSecurityMore');
             more.hidden = security.total <= events.length;
             more.textContent = fill(i18n.securityMore, {count: numberFormat.format(security.total - events.length)});
-            panel.dataset.state = security.active ? 'alert' : (events.length ? 'warn' : 'calm');
+            panel.dataset.state = security.critical || security.active ? 'alert' : (events.length ? 'warn' : 'calm');
             $('sstSecurityEmpty').hidden = events.length > 0;
             $('sstSecurityCount').textContent = [
                 fill(i18n.securityWatching, {count: security.watching}),
                 security.total ? fill(i18n.securityCount, {count: numberFormat.format(security.total)}) : null,
                 security.active ? fill(i18n.securityActiveCount, {count: security.active}) : null,
+                security.critical ? fill(i18n.securityCriticalCount, {count: security.critical}) : null,
+                security.blocked ? fill(i18n.securityBlockedCount, {count: security.blocked}) : null,
             ].filter(Boolean).join(' · ');
 
             const ids = events.map(function (event) { return event.id; });
@@ -582,6 +607,7 @@
                     }
                     const data = response.data;
                     dialog.dataset.category = data.category;
+                    dialog.dataset.severity = data.severity || 'warning';
                     $('sstSecIcon').className = 'fas ' + data.icon;
                     $('sstSecTitle').textContent = data.rule_label;
                     $('sstSecLimit').textContent = data.limit || '';
@@ -610,6 +636,17 @@
                         copy.innerHTML = '<i class="fas fa-copy" aria-hidden="true"></i>';
                     }
                     securityFact(facts, i18n.securityIp, data.ip, copy);
+                    if (data.blocked_until) {
+                        let unblock = null;
+                        if (data.can_unblock) {
+                            unblock = document.createElement('button');
+                            unblock.type = 'button';
+                            unblock.className = 'sst-sec-unblock';
+                            unblock.dataset.unblockIp = data.ip;
+                            unblock.textContent = i18n.securityUnblock;
+                        }
+                        securityFact(facts, i18n.securityLabelBlocked, fill(i18n.securityBlockedUntil, {time: data.blocked_until}), unblock);
+                    }
                     securityFact(facts, i18n.securityCountry, data.country);
                     securityFact(facts, i18n.securityTarget, data.subject);
                     const req = data.request || {};
@@ -648,6 +685,26 @@
 
         on('click', '[data-security-id]', function () {
             openSecurity(this.dataset.securityId);
+        });
+
+        on('click', '[data-unblock-ip]', function () {
+            const button = this;
+            const ip = button.dataset.unblockIp;
+            button.disabled = true;
+            send('POST', root.dataset.unblockUrl, {ip: ip})
+                .then(function () {
+                    toast(fill(i18n.securityUnblocked, {ip: ip}), 'ok');
+                    const fact = button.closest('dd');
+                    if (fact) {
+                        fact.previousElementSibling.remove();
+                        fact.remove();
+                    }
+                    load();
+                })
+                .catch(function () {
+                    button.disabled = false;
+                    toast(i18n.loadFailed, 'error');
+                });
         });
 
         on('click', '.sst-sec-copy', function () {

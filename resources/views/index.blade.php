@@ -21,6 +21,7 @@
          data-summary-url="{{ route('system_status.summary') }}"
          data-component-url="{{ route('system_status.component', ['component' => '__component__']) }}"
          data-security-url="{{ route('system_status.security.show', ['event' => '__event__']) }}"
+         data-unblock-url="{{ $canManage ? route('system_status.security.unblock') : '' }}"
          data-incidents-url="{{ route('system_status.incidents.index') }}"
          data-can-manage="{{ $canManage ? '1' : '0' }}"
          @if($canManage)
