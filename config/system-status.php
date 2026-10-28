@@ -232,6 +232,10 @@ return [
         // IPs and CIDR ranges never counted or blocked (office, monitoring, your own servers).
         'ignore_ips' => [],
 
+        // Each check below has its own 'enabled' (on by default) to turn it off on its own, e.g.
+        // SYSTEM_STATUS_SECURITY_NOT_FOUND=false in one environment. security.enabled still turns
+        // everything off. Your own request, signal and action rules take 'enabled' => false too.
+
         // Auto-block: an IP with a finding of one of these types (or any critical finding) gets
         // 403 for `minutes`, from a middleware that runs before everything else. With a Cloudflare
         // API token (Zone > Firewall Services > Edit) and zone id, the IP is also blocked at
@@ -250,6 +254,7 @@ return [
 
         // Traps nobody but an attacker touches; one hit is a critical finding.
         'honeypot' => [
+            'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_HONEYPOT', true),
             // Paths that no page links to, e.g. ones listed as Disallow in robots.txt.
             'paths' => [],
             // A hidden form field: add <x-system-status::honeypot /> inside a form. A bot that
@@ -268,11 +273,12 @@ return [
         'requests' => [
             // Denied requests: guessing tokens, IDs of other users, expired sessions in a loop.
             // `max_total`: the same rule summed over all IPs, for attacks spread over a botnet.
-            'auth_errors' => ['statuses' => [401, 403, 419], 'max' => 30, 'max_total' => 500, 'minutes' => 5],
+            'auth_errors' => ['enabled' => (bool) env('SYSTEM_STATUS_SECURITY_AUTH_ERRORS', true), 'statuses' => [401, 403, 419], 'max' => 30, 'max_total' => 500, 'minutes' => 5],
             // Clients that keep going after the rate limiter stopped them.
-            'rate_limited' => ['statuses' => [429], 'max' => 50, 'minutes' => 5],
+            'rate_limited' => ['enabled' => (bool) env('SYSTEM_STATUS_SECURITY_RATE_LIMITED', true), 'statuses' => [429], 'max' => 50, 'minutes' => 5],
             // Vulnerability scanners probing for files and tools a Laravel app never serves.
             'scanner' => [
+                'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_SCANNER', true),
                 'paths' => [
                     // Secrets and config files.
                     '.env', '.env.*', '*/.env', '*/.env.*', 'env', '*.env', '.git', '.git/*', '*/.git/*',
@@ -315,6 +321,7 @@ return [
             // Attack payloads in the URL: SQL injection, XSS, path traversal, file inclusion,
             // command injection, template injection, Log4Shell and cloud-metadata SSRF.
             'injection' => [
+                'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_INJECTION', true),
                 'contains' => [
                     'union select', 'union all select', 'union/**/select', '/**/', ' or 1=1', "' or '1'='1",
                     '" or "1"="1', "' or 1=1", 'sleep(', 'benchmark(', 'waitfor delay', 'pg_sleep',
@@ -337,6 +344,7 @@ return [
             ],
             // Known attack and scanning tools by their User-Agent.
             'scanner_tools' => [
+                'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_SCANNER_TOOLS', true),
                 'user_agents' => [
                     'sqlmap', 'nikto', 'nmap', 'masscan', 'zgrab', 'nuclei', 'wpscan', 'dirbuster', 'gobuster',
                     'feroxbuster', 'ffuf', 'wfuzz', 'dirsearch', 'acunetix', 'nessus', 'openvas', 'netsparker',
@@ -348,7 +356,7 @@ return [
                 'minutes' => 10,
             ],
             // Crawling or guessing URLs.
-            'not_found' => ['statuses' => [404], 'max' => 100, 'max_total' => 5000, 'minutes' => 5],
+            'not_found' => ['enabled' => (bool) env('SYSTEM_STATUS_SECURITY_NOT_FOUND', true), 'statuses' => [404], 'max' => 100, 'max_total' => 5000, 'minutes' => 5],
         ],
 
         // Reading many different records: one signed-in user opening more than `max` different
@@ -356,6 +364,7 @@ return [
         // IDOR (changing the id in the URL to read other people's data). Counts successful GET
         // requests of routes with parameters; skip routes with `ignore_routes` (names, Str::is).
         'records' => [
+            'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_RECORDS', true),
             'max' => 200,
             'minutes' => 10,
             'only_authenticated' => true,
@@ -365,6 +374,8 @@ return [
         // Logins, from Laravel's Illuminate\Auth\Events (Breeze, Fortify, Jetstream, Filament and
         // Auth::attempt() fire them). Passwords are never read; account names are masked.
         'logins' => [
+            // All login checks below (failed, new country / IP, travel, session country).
+            'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_LOGINS', true),
             // Failed logins per IP, and per account name (one account attacked from many IPs).
             'failed' => ['max' => 10, 'max_total' => 200, 'minutes' => 10],
             'failed_per_account' => ['max' => 5, 'minutes' => 10],

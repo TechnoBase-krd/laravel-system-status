@@ -11,6 +11,7 @@ use Technobase\SystemStatus\Models\StatusIncident;
 use Technobase\SystemStatus\Models\StatusMaintenance;
 use Technobase\SystemStatus\Models\StatusSecurityEvent;
 use Technobase\SystemStatus\Services\SecurityBlocker;
+use Technobase\SystemStatus\Services\SecurityMonitor;
 use Technobase\SystemStatus\Services\StatusService;
 use Technobase\SystemStatus\Support\StatusHeartbeat;
 use Technobase\SystemStatus\Support\StatusRegistry;
@@ -352,14 +353,16 @@ class GetStatusSummaryAction
     {
         $security = (array) config('system-status.security', []);
         $logins = (array) ($security['logins'] ?? []);
-        $active = fn ($rule) => is_array($rule) && (int) ($rule['max'] ?? 0) > 0;
+        $loginsOn = SecurityMonitor::on($logins);
+        $active = fn ($rule) => is_array($rule) && (int) ($rule['max'] ?? 0) > 0 && SecurityMonitor::on($rule);
+        $on = fn ($rule) => is_array($rule) && SecurityMonitor::on($rule);
 
         return count(array_filter((array) ($security['requests'] ?? []), $active))
-            + count(array_filter([$logins['failed'] ?? null, $logins['failed_per_account'] ?? null], $active))
-            + (int) (($logins['new_country'] ?? true) && filled($logins['country_header'] ?? 'CF-IPCountry'))
-            + (int) (bool) ($logins['new_ip'] ?? false)
-            + count(array_filter((array) ($security['signals'] ?? []), 'is_array'))
-            + count(array_filter((array) ($security['actions'] ?? []), 'is_array'))
+            + ($loginsOn ? count(array_filter([$logins['failed'] ?? null, $logins['failed_per_account'] ?? null], $active)) : 0)
+            + (int) ($loginsOn && ($logins['new_country'] ?? true) && filled($logins['country_header'] ?? 'CF-IPCountry'))
+            + (int) ($loginsOn && ($logins['new_ip'] ?? false))
+            + count(array_filter((array) ($security['signals'] ?? []), $on))
+            + count(array_filter((array) ($security['actions'] ?? []), $on))
             + (int) is_array($security['quiet_hours'] ?? null);
     }
 

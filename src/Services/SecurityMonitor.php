@@ -45,6 +45,15 @@ class SecurityMonitor
     }
 
     /**
+     * Whether a check or rule is on: every one has its own 'enabled' (on when missing).
+     */
+    public static function on(mixed $settings): bool
+    {
+        return ! is_array($settings) || ! array_key_exists('enabled', $settings)
+            || filter_var($settings['enabled'], FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
      * A finished request: honeypots and canaries, every request rule (per IP, critical when the
      * attack may have worked, and summed over all IPs), record reading and session country.
      */
@@ -71,7 +80,7 @@ class SecurityMonitor
             $this->honeypots($request, $ip, $lowerPath, $base);
 
             foreach ((array) config('system-status.security.requests', []) as $name => $rule) {
-                if (! is_array($rule)) {
+                if (! is_array($rule) || ! self::on($rule)) {
                     continue;
                 }
 
@@ -143,6 +152,11 @@ class SecurityMonitor
     private function honeypots(Request $request, string $ip, string $lowerPath, array $base): void
     {
         $honeypot = (array) config('system-status.security.honeypot', []);
+
+        if (! self::on($honeypot)) {
+            return;
+        }
+
         $critical = ['ip' => $ip, 'severity' => StatusSecurityEvent::SEVERITY_CRITICAL, 'details' => $base];
 
         $paths = array_map(fn ($pattern) => mb_strtolower(ltrim((string) $pattern, '/')), array_filter((array) ($honeypot['paths'] ?? [])));
@@ -181,7 +195,7 @@ class SecurityMonitor
         $max = (int) ($rule['max_total'] ?? 0);
         $minutes = (int) ($rule['minutes'] ?? 0);
 
-        if ($max <= 0 || $minutes <= 0) {
+        if ($max <= 0 || $minutes <= 0 || ! self::on($rule)) {
             return;
         }
 
@@ -217,6 +231,10 @@ class SecurityMonitor
     private function records(Request $request, int $status, string $ip): void
     {
         $settings = config('system-status.security.records');
+        if (! self::on($settings)) {
+            return;
+        }
+
         $max = is_array($settings) ? (int) ($settings['max'] ?? 0) : 0;
         $minutes = is_array($settings) ? (int) ($settings['minutes'] ?? 10) : 0;
         $route = $request->route();
@@ -276,7 +294,7 @@ class SecurityMonitor
         $logins = (array) config('system-status.security.logins', []);
         $header = $logins['country_header'] ?? 'CF-IPCountry';
 
-        if (! ($logins['session_country_change'] ?? true) || blank($header) || ! $request->hasSession()) {
+        if (! self::on($logins) || ! ($logins['session_country_change'] ?? true) || blank($header) || ! $request->hasSession()) {
             return;
         }
 
@@ -320,6 +338,10 @@ class SecurityMonitor
         try {
             $logins = (array) config('system-status.security.logins', []);
 
+            if (! self::on($logins)) {
+                return;
+            }
+
             if ($ip !== null) {
                 $this->hit(StatusSecurityEvent::CATEGORY_LOGIN, 'failed_logins', null, $ip, (array) ($logins['failed'] ?? []), [
                     'ip' => $ip,
@@ -347,7 +369,7 @@ class SecurityMonitor
         $checkCountry = (bool) ($logins['new_country'] ?? true);
         $checkIp = (bool) ($logins['new_ip'] ?? false);
 
-        if (! $this->enabled() || $ip === null || $this->ignored($ip) || (! $checkCountry && ! $checkIp)) {
+        if (! $this->enabled() || ! self::on($logins) || $ip === null || $this->ignored($ip) || (! $checkCountry && ! $checkIp)) {
             return;
         }
 
@@ -436,7 +458,7 @@ class SecurityMonitor
         // Not config('….signals.'.$component): a component or action name may contain a dot.
         $rule = ((array) config('system-status.security.signals', []))[$component] ?? null;
 
-        if (! $this->enabled() || ! is_array($rule)) {
+        if (! $this->enabled() || ! is_array($rule) || ! self::on($rule)) {
             return;
         }
 
@@ -471,6 +493,11 @@ class SecurityMonitor
         try {
             $rule = ((array) config('system-status.security.actions', []))[$action] ?? null;
             $rule = is_array($rule) ? $rule : [];
+
+            // A rule turned off silences the action, also in quiet hours.
+            if (! self::on($rule)) {
+                return;
+            }
             $actorKey = $actor ? ($actor instanceof Model ? $actor->getMorphClass() : $actor::class).':'.$actor->getAuthIdentifier() : 'system';
             $attributes = [
                 'ip' => $ip,
@@ -544,7 +571,7 @@ class SecurityMonitor
         $max = (int) ($settings['max'] ?? 0);
         $minutes = (int) ($settings['minutes'] ?? 0);
 
-        if ($max <= 0 || $minutes <= 0) {
+        if ($max <= 0 || $minutes <= 0 || ! self::on($settings)) {
             return null;
         }
 

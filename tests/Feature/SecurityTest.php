@@ -417,3 +417,68 @@ it('renders the panel and its dialog with unique element ids', function () {
         ->and($html)->toContain('id="sstSecurityDialog"')
         ->and($html)->toContain('data-security-url=');
 });
+
+/* ---------- each check turned off on its own ---------- */
+
+it('skips a request rule turned off, while the others keep watching', function () {
+    config()->set('system-status.security.requests.scanner.max', 1);
+    config()->set('system-status.security.requests.scanner.enabled', false);
+    config()->set('system-status.security.requests.auth_errors.max', 1);
+
+    $this->get('/web/wp-includes/wlwmanifest.xml');
+    $this->get('/.env');
+    $this->get('/secret');
+    $this->get('/secret');
+
+    expect(StatusSecurityEvent::query()->pluck('type')->all())->toBe(['auth_errors']);
+});
+
+it('reads the enabled switch from a string, as env() can leave it', function () {
+    config()->set('system-status.security.requests.scanner.max', 1);
+    config()->set('system-status.security.requests.scanner.enabled', 'false');
+
+    $this->get('/.env');
+    $this->get('/.git/config');
+
+    expect(StatusSecurityEvent::query()->count())->toBe(0)
+        ->and(SecurityMonitor::on(['enabled' => 'true']))->toBeTrue()
+        ->and(SecurityMonitor::on(['max' => 1]))->toBeTrue();
+});
+
+it('turns off all login checks with logins.enabled', function () {
+    config()->set('system-status.security.logins.enabled', false);
+    config()->set('system-status.security.logins.failed', ['max' => 1, 'minutes' => 10]);
+    config()->set('system-status.security.logins.new_ip', true);
+    $user = User::query()->create(['name' => 'Sara']);
+
+    for ($i = 0; $i < 3; $i++) {
+        event(new Failed('web', null, ['email' => 'sara@example.com', 'password' => 'x']));
+    }
+    app(SecurityMonitor::class)->login($user, '203.0.113.5', 'IQ');
+    app(SecurityMonitor::class)->login($user, '203.0.113.6', 'TR');
+
+    expect(StatusSecurityEvent::query()->count())->toBe(0)
+        ->and(DB::table('status_security_logins')->count())->toBe(0);
+});
+
+it('turns off one signal limit or action rule', function () {
+    config()->set('system-status.security.signals.otp', ['enabled' => false, 'max' => 1, 'minutes' => 60]);
+    config()->set('system-status.security.actions', ['roles.changed' => ['enabled' => false, 'alert' => true]]);
+    config()->set('system-status.security.quiet_hours', ['from' => '00:00', 'to' => '23:59']);
+
+    StatusSignal::success('otp');
+    StatusSignal::success('otp');
+    StatusSecurity::action('roles.changed', User::query()->create(['name' => 'Rawa']));
+
+    expect(StatusSecurityEvent::query()->count())->toBe(0);
+});
+
+it('leaves checks turned off out of the number of rules watching', function () {
+    $watching = fn () => app(GetStatusSummaryAction::class)->security()['watching'];
+    $before = $watching();
+
+    config()->set('system-status.security.requests.not_found.enabled', false);
+    config()->set('system-status.security.actions.export.enabled', false);
+
+    expect($watching())->toBe($before - 2);
+});

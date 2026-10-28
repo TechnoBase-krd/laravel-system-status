@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Each suspicious activity check can be turned off on its own, on by default: `'enabled'` on
+  every request rule, `honeypot`, `records`, `logins` and each `signals` / `actions` rule, with
+  `.env` switches for the built-in ones (`SYSTEM_STATUS_SECURITY_SCANNER=false`,
+  `SYSTEM_STATUS_SECURITY_NOT_FOUND=false`, `SYSTEM_STATUS_SECURITY_LOGINS=false`, …).
+  Checks turned off are left out of the *rules watching* count. Published configs keep working
+  unchanged; copy the new `enabled` lines to use the `.env` switches.
 - Suspicious activity monitoring, off by default (`security.enabled`,
   `SYSTEM_STATUS_SECURITY_ENABLED`). Per-IP request rules (denied 401/403/419, rate-limited 429,
   about 150 scanner paths (secrets, Laravel logs and `vendor`, backups, WordPress, admin tools, web

@@ -480,3 +480,12 @@ it('does not report the package\'s own signed checks, but does report a forged s
     }
     expect(StatusSecurityEvent::query()->where('type', 'scanner')->count())->toBe(1);
 });
+
+it('skips honeypots turned off', function () {
+    config()->set('system-status.security.honeypot.enabled', false);
+    config()->set('system-status.security.honeypot.paths', ['/old-admin*']);
+
+    $this->withServerVariables(fromAttacker())->get('/old-admin/login');
+
+    expect(StatusSecurityEvent::query()->count())->toBe(0);
+});

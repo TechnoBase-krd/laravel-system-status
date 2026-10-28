@@ -683,6 +683,26 @@ account) alerts once per `cooldown_minutes` (30); while it goes on, its hit coun
 | Risky actions reported from code | `actions.<name>` | `roles.changed` always, `export` more than 10 / h, `bulk_delete` more than 3 / h |
 | Any reported action in quiet hours | `quiet_hours` | off |
 
+**Turning one check off.** `SYSTEM_STATUS_SECURITY_ENABLED=false` turns everything off. To keep
+monitoring but drop one check (in one environment, for example), each check has its own switch,
+on by default:
+
+| Check | `.env` | Config |
+| --- | --- | --- |
+| Denied requests | `SYSTEM_STATUS_SECURITY_AUTH_ERRORS=false` | `requests.auth_errors.enabled` |
+| Rate-limited requests | `SYSTEM_STATUS_SECURITY_RATE_LIMITED=false` | `requests.rate_limited.enabled` |
+| Scanner paths | `SYSTEM_STATUS_SECURITY_SCANNER=false` | `requests.scanner.enabled` |
+| Attack payloads | `SYSTEM_STATUS_SECURITY_INJECTION=false` | `requests.injection.enabled` |
+| Attack tools | `SYSTEM_STATUS_SECURITY_SCANNER_TOOLS=false` | `requests.scanner_tools.enabled` |
+| Many 404s | `SYSTEM_STATUS_SECURITY_NOT_FOUND=false` | `requests.not_found.enabled` |
+| Honeypots and canaries | `SYSTEM_STATUS_SECURITY_HONEYPOT=false` | `honeypot.enabled` |
+| Reading many records | `SYSTEM_STATUS_SECURITY_RECORDS=false` | `records.enabled` |
+| All login checks | `SYSTEM_STATUS_SECURITY_LOGINS=false` | `logins.enabled` |
+
+Your own request rules, `signals.<component>` and `actions.<name>` take `'enabled' => false` too.
+An application that published the config before this option has no `enabled` keys: add the
+lines from the package's config to use the `.env` switches.
+
 ```php
 'security' => [
     'enabled' => (bool) env('SYSTEM_STATUS_SECURITY_ENABLED', false),
