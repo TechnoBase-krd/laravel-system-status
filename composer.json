@@ -1,14 +1,26 @@
 {
     "name": "technobase/laravel-system-status",
-    "description": "A status page for Laravel backoffices: read-only probes, real per-route traffic, signals, automatic incidents, Telegram alerts and 1h / 24h / 7d / 90d history.",
+    "description": "Self-hosted status page, uptime monitor and incident tracker for Laravel: health checks, real traffic, automatic incidents, Telegram / Slack / Discord alerts, SLA reports and security monitoring.",
     "type": "library",
     "license": "MIT",
     "keywords": [
         "laravel",
         "status-page",
+        "statuspage",
+        "system-status",
         "monitoring",
         "uptime",
-        "incidents"
+        "uptime-monitor",
+        "health-check",
+        "incidents",
+        "incident-management",
+        "alerts",
+        "telegram",
+        "slack",
+        "sla",
+        "maintenance",
+        "security",
+        "laravel-package"
     ],
     "authors": [
         {
