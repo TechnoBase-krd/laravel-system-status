@@ -48,6 +48,7 @@ class DoctorCommand extends Command
         $this->probes($registry);
         $this->labels($registry);
         $this->alerts($alerter);
+        $this->api();
         $this->cachedConfig($registry);
         $this->security();
         $this->dangerousSettings();
@@ -277,9 +278,38 @@ class DoctorCommand extends Command
             }
         }
 
+        $webhooks = count((array) config('system-status.alerts.webhooks', []));
+
+        if ($alerter->channels() === [] && $missing === []) {
+            $webhooks > 0
+                ? $this->reportOk('Alerts', "No channels; events go to {$webhooks} webhook(s) only. Test with status:test-alert --webhooks.")
+                : $this->reportWarn('Alerts', 'No channels and no webhooks: nobody is told about outages.');
+
+            return;
+        }
+
         $missing
             ? $this->reportWarn('Alerts', implode('; ', $missing).'. Alerts are only logged. Test with status:test-alert.')
             : $this->reportOk('Alerts', 'Channels: '.implode(', ', $alerter->channels()).'. Test with status:test-alert.');
+    }
+
+    private function api(): void
+    {
+        $token = (string) config('system-status.api.token', '');
+
+        if ($token === '') {
+            $this->reportOk('Status API', 'Off (no system-status.api.token).');
+
+            return;
+        }
+
+        if (strlen($token) < 32) {
+            $this->reportWarn('Status API', 'The API token is shorter than 32 characters; use a long random value.');
+        } elseif (hash_equals((string) config('system-status.deploys.token', ''), $token)) {
+            $this->reportWarn('Status API', 'The API token is the same as the deploy token; give each its own value.');
+        } else {
+            $this->reportOk('Status API', 'On: GET '.trim((string) config('system-status.path', 'system-status'), '/').'/api/summary with a bearer token.');
+        }
     }
 
     private function cachedConfig(StatusRegistry $registry): void

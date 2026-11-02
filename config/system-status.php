@@ -192,6 +192,17 @@ return [
         'accent' => '#6F2E8F',
     ],
 
+    // Read-only JSON for external monitors (for example a central dashboard that watches many
+    // applications): GET {path}/api/summary, {path}/api/components/{key} and {path}/api/incidents,
+    // with "Authorization: Bearer <token>" instead of a session. The same data as the page,
+    // plus a `meta` block (app name, package version). null = the endpoints are off (404).
+    // Use a long random value (php -r 'echo bin2hex(random_bytes(32));'), not the deploy token.
+    'api' => [
+        'token' => env('SYSTEM_STATUS_API_TOKEN'),
+        // Laravel throttle: requests per minute per client.
+        'throttle' => '60,1',
+    ],
+
     // Deploy markers: `php artisan status:deploy 1.8.2` (or POST {path}/deploys from CI) records
     // a deploy. It shows as a line on the charts, and incidents that start soon after it say so.
     'deploys' => [

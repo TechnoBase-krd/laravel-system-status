@@ -30,7 +30,7 @@ namespace `Technobase\SystemStatus`. Public on Packagist (MIT); used by Khatun-E
 | `src/Probes/` | `Probe`, `ConcurrentProbe` + `SendsHttpRequest` (one HTTP request, sent in a pool), `ProbeResult` and the generic probes (Spatie, HTTP, queue heartbeat, CDN, Telegram, TLS certificate, disk space, failed jobs, queue size, queue wait, DNS, TCP port, callback) |
 | `src/Actions/` | data for the page (`GetStatusSummaryAction`), the detail popup (`GetStatusComponentAction`) and the monthly SLA report (`GetStatusReportAction`: CSV, HTML, PDF) |
 | `src/Console/` | `status:check`, `status:prune`, `status:routes`, `status:maintenance`, `status:test-alert`, `status:report`, `status:doctor`, `status:deploy`, `status:security` |
-| `src/Http/` | controllers (page, management, report), `AuthorizeSystemStatus`, `AuthorizeSystemStatusManagement` (`access.manage_gate`), `RecordRouteHealth`, form requests |
+| `src/Http/` | controllers (page, management, report, deploys, the token API `StatusApiController`), `AuthorizeSystemStatus`, `AuthorizeSystemStatusManagement` (`access.manage_gate`), `AuthorizeStatusApiToken` (`api.token`, shares `Support\StatusToken` with deploys), `RecordRouteHealth`, form requests |
 | `src/Enums/` | `ComponentStatus` (incl. `Maintenance`), `IncidentState` |
 | `src/Events/` | `ComponentStatusChanged` (every confirmed change), `IncidentUpdated`, `MaintenanceStarted`, `MaintenanceEnded` |
 | `src/Models/` | `StatusComponent`, `StatusCheck`, `StatusIncident`, `StatusIncidentUpdate`, `StatusMaintenance` |

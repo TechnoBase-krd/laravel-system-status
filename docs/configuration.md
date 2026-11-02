@@ -55,6 +55,8 @@ All options live in `config/system-status.php`.
 | `alerts.webhooks` | `[]` | URLs that receive JSON events, e.g. `[['url' => '…', 'secret' => '…']]` (see [Webhooks](alerts.md#webhooks)) |
 | `alerts.flap` | `['changes' => 4, 'minutes' => 30]` | after this many changes within `minutes`, one "flapping" alert, then quiet until stable; `null` = off |
 | `alerts.reminder_minutes` | `env('SYSTEM_STATUS_REMINDER_MINUTES')` (`null`) | repeat "still down" for a major outage every this many minutes; `null` = no reminders |
+| `api.token` | `env('SYSTEM_STATUS_API_TOKEN')` (`null`) | bearer token for the read-only API (`{path}/api/summary`, `/api/components/{key}`, `/api/incidents`) used by external monitors; `null` = the API answers 404 (see [External monitors](alerts.md#external-monitors)) |
+| `api.throttle` | `60,1` | Laravel throttle for the API (requests per minute) |
 | `sla.default_target` | `null` | monthly uptime target in % for components without their own `sla`; `null` = no target |
 | `reports.mail_to` | `env('SYSTEM_STATUS_REPORT_MAIL_TO')`, comma-separated | email last month's report on the 1st at 08:00 to these addresses |
 | `reports.format` | `csv` | format of the emailed report: `csv`, `html` or `pdf` |

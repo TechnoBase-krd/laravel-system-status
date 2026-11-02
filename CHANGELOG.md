@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Read-only API for external monitors: `GET {path}/api/summary`, `{path}/api/components/{key}`
+  and `{path}/api/incidents` with `Authorization: Bearer <api.token>` (or
+  `X-System-Status-Token`) instead of a session, so a central dashboard can watch many
+  applications. The same data as the page plus a `meta` block (`app`, `package_version`,
+  `generated_at`). Off (404) until `SYSTEM_STATUS_API_TOKEN` is set; throttled by `api.throttle`
+  (`60,1`). New route names `system_status.api.summary`, `system_status.api.component` and
+  `system_status.api.incidents`. `status:doctor` warns about a short API token or one that
+  equals the deploy token, and says so when events go to webhooks only (`alerts.channels = []`).
+  Published configs keep working; copy the new `api` block to set the throttle.
+
 - Each suspicious activity check can be turned off on its own, on by default: `'enabled'` on
   every request rule, `honeypot`, `records`, `logins` and each `signals` / `actions` rule, with
   `.env` switches for the built-in ones (`SYSTEM_STATUS_SECURITY_SCANNER=false`,

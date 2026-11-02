@@ -2,9 +2,11 @@
 
 use Illuminate\Support\Facades\Route;
 use Technobase\SystemStatus\Http\Controllers\DeployController;
+use Technobase\SystemStatus\Http\Controllers\StatusApiController;
 use Technobase\SystemStatus\Http\Controllers\StatusManagementController;
 use Technobase\SystemStatus\Http\Controllers\StatusReportController;
 use Technobase\SystemStatus\Http\Controllers\SystemStatusController;
+use Technobase\SystemStatus\Http\Middleware\AuthorizeStatusApiToken;
 use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatus;
 use Technobase\SystemStatus\Http\Middleware\AuthorizeSystemStatusManagement;
 use Technobase\SystemStatus\Http\Middleware\EnsureSystemStatusEnabled;
@@ -44,6 +46,17 @@ Route::middleware([EnsureSystemStatusEnabled::class, ...(array) config('system-s
                 ->whereNumber('maintenance')
                 ->name('system_status.maintenances.end');
         });
+    });
+
+// Read-only API for external monitors: a bearer token (system-status.api.token), not a session.
+Route::middleware([EnsureSystemStatusEnabled::class, AuthorizeStatusApiToken::class, 'throttle:'.config('system-status.api.throttle', '60,1')])
+    ->prefix($path.'/api')
+    ->group(function () {
+        Route::get('summary', [StatusApiController::class, 'summary'])->name('system_status.api.summary');
+        Route::get('components/{component}', [StatusApiController::class, 'component'])
+            ->where('component', '[a-z_]+')
+            ->name('system_status.api.component');
+        Route::get('incidents', [StatusApiController::class, 'incidents'])->name('system_status.api.incidents');
     });
 
 // Deploys from CI: a bearer token (system-status.deploys.token), not a session, so no web middleware.
