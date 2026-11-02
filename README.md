@@ -27,6 +27,8 @@ but inside your own Laravel app.
 - **Maintenance windows and deploy markers**: planned work raises no alert; incidents show
   "6 min after deploy v1.8.2".
 - **Alerts**: Telegram, mail, Slack, Discord, signed webhooks and Laravel events.
+- **External monitors**: a read-only API with a bearer token, so a central dashboard can watch
+  many applications without a session.
 - **Security monitoring** (opt-in): scanners, SQL injection and XSS attempts, brute-force
   logins, logins from new countries, honeypots, auto-block with Cloudflare.
 - **SLA reports**: monthly uptime per component, as a page, CSV or PDF.

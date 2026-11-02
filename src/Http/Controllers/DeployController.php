@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
 use Technobase\SystemStatus\Services\DeployService;
+use Technobase\SystemStatus\Support\StatusToken;
 
 /**
  * POST {path}/deploys from CI: Authorization: Bearer <system-status.deploys.token>.
@@ -18,9 +19,7 @@ class DeployController extends Controller
     {
         $token = (string) config('system-status.deploys.token', '');
         abort_if($token === '', 404);
-
-        $given = (string) ($request->bearerToken() ?? $request->header('X-System-Status-Token', ''));
-        abort_unless($given !== '' && hash_equals($token, $given), 401);
+        abort_unless(StatusToken::matches($request, $token), 401);
 
         $data = $request->validate([
             'version' => ['required', 'string', 'max:100'],

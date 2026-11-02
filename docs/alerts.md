@@ -95,6 +95,50 @@ $expected = 'sha256='.hash_hmac('sha256', $request->getContent(), config('servic
 abort_unless(hash_equals($expected, (string) $request->header('X-System-Status-Signature')), 401);
 ```
 
+## External monitors
+
+A central dashboard that watches many applications can read the same data as the page without
+a session, and receive every event as a webhook:
+
+1. **Read-only API.** Set a long random token (not the deploy token):
+
+   ```bash
+   SYSTEM_STATUS_API_TOKEN=$(php -r 'echo bin2hex(random_bytes(32));')
+   ```
+
+   ```bash
+   curl -H "Authorization: Bearer $SYSTEM_STATUS_API_TOKEN" https://shop.example.com/system-status/api/summary?range=1h
+   ```
+
+   | Endpoint | Returns |
+   | --- | --- |
+   | `GET {path}/api/summary?range=1h\|24h\|7d\|90d` | `data`: the page summary (`overall`, `groups` → `components` with `status`, `message`, `affected_by`, `incidents`, `maintenances`, `recent_deploys`, `security`) |
+   | `GET {path}/api/components/{key}` | `data`: one component's details |
+   | `GET {path}/api/incidents?page=&per_page=` | incidents, open ones first (`meta` also has `page`, `per_page`, `total`, `has_more`) |
+
+   Every response also has `meta`: `app` (`APP_NAME`), `package_version` and `generated_at`.
+   The token can also be sent as `X-System-Status-Token`. Without a token the API answers 404;
+   a wrong token answers 401. The page and its management routes still need a signed-in user.
+   Requests are throttled by `api.throttle` (60 per minute).
+
+2. **Webhooks** to the monitor, signed with a secret (see [Webhooks](#webhooks)):
+
+   ```php
+   'webhooks' => [
+       ['url' => env('SYSTEM_STATUS_MONITOR_WEBHOOK_URL'), 'secret' => env('SYSTEM_STATUS_MONITOR_WEBHOOK_SECRET')],
+   ],
+   ```
+
+3. **Deploy markers** from the monitor's deploys: give it `SYSTEM_STATUS_DEPLOY_TOKEN` (see
+   [Deploy markers](incidents.md)).
+
+4. **Who alerts.** When the monitor sends the alerts itself, turn the application's own channels
+   off and keep the webhooks: `'channels' => []`. `status:doctor` then reports "events go to N
+   webhook(s) only". Webhooks are not retried, so the monitor should also poll the API to catch
+   up after a missed event or a network problem.
+
+`status:doctor` warns when the API token is shorter than 32 characters or equals the deploy token.
+
 ## Reacting to status changes
 
 Every confirmed change fires `Technobase\SystemStatus\Events\ComponentStatusChanged`:

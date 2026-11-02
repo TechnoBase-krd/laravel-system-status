@@ -23,7 +23,7 @@ checks never create data or cost money, and a status only changes when it is rea
 | Labels for the application's components | `lang/vendor/system-status/<locale>/status.php` |
 | Reactions to status changes | listeners of `ComponentStatusChanged`, `IncidentUpdated`, `MaintenanceStarted`, `MaintenanceEnded`, `DeployRecorded`, `SuspiciousActivityDetected` (all in `Technobase\SystemStatus\Events`) |
 | Risky actions to watch | `StatusSecurity::action('roles.changed', $user)` in the application's code, rules in `security.actions` |
-| Alert credentials | `.env`: `SYSTEM_STATUS_TELEGRAM_CHAT_ID`, `SYSTEM_STATUS_ALERT_MAIL_TO`, `SYSTEM_STATUS_SLACK_WEBHOOK`, `SYSTEM_STATUS_DISCORD_WEBHOOK`, `SYSTEM_STATUS_REMINDER_MINUTES`, `SYSTEM_STATUS_REPORT_MAIL_TO`, `SYSTEM_STATUS_DEPLOY_TOKEN`, `SYSTEM_STATUS_SECURITY_ENABLED` |
+| Alert credentials | `.env`: `SYSTEM_STATUS_TELEGRAM_CHAT_ID`, `SYSTEM_STATUS_ALERT_MAIL_TO`, `SYSTEM_STATUS_SLACK_WEBHOOK`, `SYSTEM_STATUS_DISCORD_WEBHOOK`, `SYSTEM_STATUS_REMINDER_MINUTES`, `SYSTEM_STATUS_REPORT_MAIL_TO`, `SYSTEM_STATUS_DEPLOY_TOKEN`, `SYSTEM_STATUS_API_TOKEN`, `SYSTEM_STATUS_SECURITY_ENABLED` |
 
 ## How a status is decided
 
@@ -144,6 +144,11 @@ php artisan status:deploy 1.8.2 --note="New checkout"   # no version = read from
 From CI: `POST {path}/deploys` with `Authorization: Bearer $SYSTEM_STATUS_DEPLOY_TOKEN` and
 `version` (plus `commit`, `note`, `deployed_by`). `deploys.compare.enabled` adds one alert when
 errors or p95 got clearly worse after a deploy.
+
+For a central monitor: `GET {path}/api/summary` (also `/api/components/{key}`, `/api/incidents`)
+with `Authorization: Bearer $SYSTEM_STATUS_API_TOKEN` returns the page data plus `meta`, without a
+session. Off (404) until the token is set. Keep its webhook in `alerts.webhooks`; with
+`'channels' => []` the monitor does the alerting.
 
 Only some components: `php artisan status:maintenance database redis --minutes=30
 --title="Database upgrade"`. Later: `--start="2026-10-25 02:00"`. `--list` shows windows,
