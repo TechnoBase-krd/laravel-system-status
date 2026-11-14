@@ -76,17 +76,14 @@ class IncidentService
     }
 
     /**
-     * Adds a timeline entry. "resolved" closes the incident; only incidents posted by hand can
-     * be resolved this way (automatic ones resolve when the checks recover).
+     * Adds a timeline entry. "resolved" closes the incident, manual or automatic. An automatic
+     * incident closed by hand while its component still fails stays closed (no reminders); a new
+     * one opens only on the component's next confirmed change to a problem.
      */
     public function update(StatusIncident $incident, IncidentState $state, string $message, ?string $author = null): StatusIncidentUpdate
     {
         if ($incident->resolved_at !== null) {
             throw new InvalidArgumentException('This incident is already resolved.');
-        }
-
-        if ($state === IncidentState::Resolved && ! $incident->isManual()) {
-            throw new InvalidArgumentException('Automatic incidents resolve when the checks recover.');
         }
 
         $update = DB::transaction(function () use ($incident, $state, $message, $author) {

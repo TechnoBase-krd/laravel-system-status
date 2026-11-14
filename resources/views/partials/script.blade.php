@@ -1707,11 +1707,6 @@
                 updateForm.elements.incident_id.value = incident.id;
                 updateForm.querySelector('.sst-update-for').textContent = fill(i18n.updateFor, {title: incident.title || incident.component_label});
 
-                // Only incidents posted by hand are resolved by a person.
-                const resolved = updateForm.querySelector('[data-state-option="resolved"]');
-                resolved.hidden = incident.source !== 'manual';
-                resolved.querySelector('input').disabled = incident.source !== 'manual';
-
                 // Suggest the next step.
                 const current = Math.max(0, STEPS.indexOf(incident.state || 'investigating'));
                 const next = STEPS[Math.min(current + 1, incident.source === 'manual' ? 3 : 2)];

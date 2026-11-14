@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Automatic incidents can be resolved by hand, from the page (timeline update *Resolved*) or
+  `IncidentService::update()`; before, only manual incidents could. Resolving one while the
+  component still fails stops its reminders; the component keeps its real status, and a new
+  incident opens on its next confirmed change to a problem.
+
 - Read-only API for external monitors: `GET {path}/api/summary`, `{path}/api/components/{key}`
   and `{path}/api/incidents` with `Authorization: Bearer <api.token>` (or
   `X-System-Status-Token`) instead of a session, so a central dashboard can watch many

@@ -14,8 +14,11 @@ incident by hand** from the page (*Report incident*): choose the component, the 
   when every check passes. It does not open a second, automatic incident for the same problem.
 - **Timeline**: add updates with a state (*Investigating*, *Identified*, *Monitoring*,
   *Resolved*) and a message. Each update is shown on the page with its author and time.
-- **Only manual incidents can be resolved by hand.** Automatic incidents can get timeline
-  updates, but they resolve when the checks recover.
+- **Any incident can be resolved by hand**, manual or automatic. Automatic incidents also
+  resolve by themselves when the checks recover. Closing an automatic incident while its
+  component still fails stops the "still down" reminders; the component keeps showing its real
+  status, and a new incident opens only when the component recovers and fails again (or gets
+  worse). To silence a component for a known period instead, schedule maintenance.
 - **Postmortem**: on a resolved incident, write a *cause & fix* note. It is shown under the
   incident.
 - Posting an incident and every update send an alert to the configured channels, fire

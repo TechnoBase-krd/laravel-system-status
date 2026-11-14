@@ -57,16 +57,37 @@ it('holds the component at the incident severity until resolved', function () {
         ->and($incident->fresh()->updates()->count())->toBe(2);
 });
 
-it('does not resolve automatic incidents by hand', function () {
+it('resolves automatic incidents by hand', function () {
     probeReturns('database', ProbeResult::outage('down'));
     runChecks(2);
     $incident = StatusIncident::query()->sole();
 
-    expect(fn () => app(IncidentService::class)->update($incident, IncidentState::Resolved, 'done'))
-        ->toThrow(InvalidArgumentException::class);
-
     app(IncidentService::class)->update($incident, IncidentState::Identified, 'Disk full');
     expect($incident->fresh()->state)->toBe(IncidentState::Identified);
+
+    app(IncidentService::class)->update($incident, IncidentState::Resolved, 'Known, waiting on the provider');
+    expect($incident->fresh()->resolved_at)->not->toBeNull();
+
+    // Still failing: no new incident until the component changes again.
+    runChecks(2);
+    expect(StatusIncident::query()->count())->toBe(1);
+
+    // Recovers, then fails again: a new incident.
+    probeReturns('database', ProbeResult::ok());
+    runChecks(2);
+    probeReturns('database', ProbeResult::outage('down again'));
+    runChecks(2);
+    expect(StatusIncident::query()->open()->count())->toBe(1)
+        ->and(StatusIncident::query()->count())->toBe(2);
+});
+
+it('resolves an automatic incident by hand through the page', function () {
+    probeReturns('database', ProbeResult::outage('down'));
+    runChecks(2);
+    $id = StatusIncident::query()->sole()->id;
+
+    $this->actingAs($this->admin)->postJson("/system-status/incidents/{$id}/updates", ['state' => 'resolved', 'message' => 'Known'])
+        ->assertCreated()->assertJsonPath('data.ongoing', false);
 });
 
 it('keeps manual incidents open when the automatic checks recover', function () {
